@@ -254,7 +254,9 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
     const insts = byPiece(seam.piece);
     insts.forEach((pi, k) => {
       if (placed.has(pi)) return;
-      attach(g, p, seam, host, pi, k, insts.length, pos, angle, w, seamEdges, planes);
+      // what is already on the host's side: a hanging piece must stay outside all of it
+      const near = () => g.instances.filter((q) => q !== pi && placed.has(q) && find(q) === find(host)).flatMap((q) => q.nodeIds);
+      attach(g, p, seam, host, pi, k, insts.length, pos, angle, w, seamEdges, planes, near);
       placed.add(pi);
     });
   }
@@ -411,13 +413,13 @@ function placeBase(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle: 
 
 function attach(
   g: StitchGraph, p: Pattern, seam: Seam, host: PieceInstance, pi: PieceInstance, k: number, count: number,
-  pos: Float32Array, angle: Float32Array, w: number, seamEdges: GEdge[], planes: Map<PieceInstance, V>,
+  pos: Float32Array, angle: Float32Array, w: number, seamEdges: GEdge[], planes: Map<PieceInstance, V>, nearOf: () => number[] = () => [],
 ) {
   const hostRows = host.rows.filter((r) => r.row > 0);
   if (!hostRows.length) return;
   if (seam.hint === 'lid') { attachLid(g, host, pi, pos, seamEdges); return; }
   if (isHandle(pi) && seam.rowA === undefined) { attachHandle(g, host, pi, pos, seamEdges, seam.hint === 'back' ? FRONT + Math.PI : FRONT + Math.PI / 2); return; }
-  if (seam.hint === 'wrap' && pi.piece.construction === 'rows') { attachWrap(g, host, pi, pos, w, seamEdges, seam.wrapAt ?? ''); return; }
+  if (seam.hint === 'wrap' && pi.piece.construction === 'rows') { attachWrap(g, host, pi, pos, w, seamEdges, seam.wrapAt ?? '', nearOf()); return; }
   if ((seam.hint === 'top' || seam.hint === 'default') && seam.rowA === undefined && count === 1 && isCap(host, pi)) { attachCap(g, host, pi, pos, seamEdges); return; }
   const up = isUpright(host);
   const nR = hostRows.length;
@@ -737,7 +739,7 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
  * A strip wrapped round the host (a collar round the shoulders, a tiara round a bun): a ring at the
  * host's round named by the text, drooping a little where it is wider than the host.
  */
-function attachWrap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: Float32Array, w: number, seamEdges: GEdge[], at: string) {
+function attachWrap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: Float32Array, w: number, seamEdges: GEdge[], at: string, near: number[]) {
   const rows = host.rows.filter((r) => r.row > 0 && r.nodes.length);
   const strip = pi.rows.filter((r) => r.nodes.length);
   if (!rows.length || !strip.length) return;
@@ -756,23 +758,65 @@ function attachWrap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos:
   const C = centroid(pos, ring);
   const hostR = ring.reduce((a, id) => a + Math.hypot(pos[id * 3] - C[0], pos[id * 3 + 2] - C[2]), 0) / ring.length;
   const ids = strip.flatMap((r) => r.nodes);
-  let minx = Infinity, maxx = -Infinity, maxy = -Infinity;
-  for (const id of ids) { minx = Math.min(minx, pos[id * 3]); maxx = Math.max(maxx, pos[id * 3]); maxy = Math.max(maxy, pos[id * 3 + 1]); }
-  const L = Math.max(maxx - minx, w);
-  const r = Math.max(L / TAU, hostR + w * 0.6);
-  const droop = (r - hostR) * 0.6;
+  let maxy = -Infinity;
+  for (const id of ids) maxy = Math.max(maxy, pos[id * 3 + 1]);
+  // the first row (a foundation chain) goes snugly round the host, keeping its length; the rows
+  // worked from it hang from it, further out and lower
+  const chain = strip[0].nodes;
+  const r0 = hostR + w * 0.5;
+  const x0 = pos[chain[0] * 3];
+  const sgn = Math.sign(pos[chain[chain.length - 1] * 3] - x0) || 1;
+  const into = new Map<number, number>();
+  const mine = new Set(ids);
+  for (const e of g.edges) if (e.kind === 'into' && mine.has(e.b) && mine.has(e.a) && !into.has(e.b)) into.set(e.b, e.a);
+  // only part of the chain worked (a veil from the end of its chain): that part hangs at the back
+  const chainSet = new Set(chain);
+  const worked = (strip[1]?.nodes ?? []).map((id) => into.get(id)).filter((id): id is number => id !== undefined && chainSet.has(id));
+  let a0 = FRONT;
+  if (worked.length && new Set(worked).size < chain.length * 0.6) {
+    const mid = worked.reduce((t, id) => t + sgn * (pos[id * 3] - x0), 0) / worked.length;
+    a0 = FRONT + Math.PI - mid / r0;
+  }
+  const th = new Map<number, number>();
+  const flat = new Map(ids.map((id) => [id, get(pos, id)] as const));
+  for (const id of chain) th.set(id, a0 + (sgn * (flat.get(id)![0] - x0)) / r0);
+  // each later row is centred on the stitches it was worked into, keeping its own width
+  for (const r of strip.slice(1)) {
+    const out = r.nodes.map((id) => (maxy - flat.get(id)![1]) * 0.6);
+    const rr = r0 + out.reduce((a, b) => a + b, 0) / Math.max(1, out.length);
+    const tg = r.nodes.map((id) => th.get(into.get(id) ?? -1)).filter((t): t is number => t !== undefined);
+    const xm = r.nodes.reduce((a, id) => a + flat.get(id)![0], 0) / r.nodes.length;
+    const tm = tg.length ? tg.reduce((a, b) => a + b, 0) / tg.length : a0;
+    for (const id of r.nodes) th.set(id, tm + (sgn * (flat.get(id)![0] - xm)) / rr);
+  }
   for (const id of ids) {
-    const th = FRONT + (TAU * (pos[id * 3] - minx)) / L;
-    const out = (maxy - pos[id * 3 + 1]) * 0.6; // later rows lie further out and lower
-    const rr = r + out;
-    pos.set([C[0] + rr * Math.cos(th), C[1] - droop - out * 0.8, C[2] + rr * Math.sin(th)], id * 3);
+    const out = (maxy - flat.get(id)![1]) * 0.6;
+    const rr = r0 + out, t = th.get(id)!;
+    pos.set([C[0] + rr * Math.cos(t), C[1] - out * 0.8, C[2] + rr * Math.sin(t)], id * 3);
   }
   const hostIds = rows.slice(Math.max(0, k - 2), k + 3).flatMap((q) => q.nodes);
-  for (const id of strip[0].nodes) {
+  for (const id of chain) {
     const pv = get(pos, id);
     let b = hostIds[0], d2 = Infinity;
     for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
-    seamEdges.push({ a: id, b, kind: 'seam', rest: Math.max(Math.sqrt(d2), w * 0.3) });
+    seamEdges.push({ a: id, b, kind: 'seam', rest: w * 0.5 });
+  }
+  // the rest hangs free but can't pass through the host or what it sits on (the bun, head and
+  // hair under a veil): a one-sided clearance from the nearest stitch (a negative stick)
+  const others = near.length ? near : host.nodeIds;
+  // start it outside them too, or the clearance would hold it on the wrong side
+  const otherSet = new Set(others);
+  const cOf = new Map<number, V>();
+  for (const q of g.instances) if (q.nodeIds.some((id) => otherSet.has(id))) { const c = centroid(pos, q.nodeIds); for (const id of q.nodeIds) cOf.set(id, c); }
+  for (const r of strip.slice(1)) for (const id of r.nodes) {
+    const pv = get(pos, id);
+    let b = others[0], d2 = Infinity;
+    for (const hid of others) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+    const off = (g.nodes[b].h || w) * 0.8;
+    const nb = norm(sub(get(pos, b), cOf.get(b)!));
+    const d = dot(sub(pv, get(pos, b)), nb);
+    if (d < off) pos.set(add(pv, mul(nb, off - d)), id * 3);
+    seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: -off });
   }
 }
 

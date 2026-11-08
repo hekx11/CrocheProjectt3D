@@ -77,3 +77,41 @@ Rnd 7: sc in next 12 st [12]
     expect(rows.find((r) => r.row === 4)!.closed).toBe(true);
   });
 });
+
+describe('pieces wrapped round another piece', () => {
+  it('hangs the worked part of a wrapped chain at the back, outside the piece it is wrapped round', () => {
+    const model = buildModel(parsePattern(`Ball
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (sc, inc) repeat 6 times [18]
+Rnd 4: (2 sc, inc) repeat 6 times [24]
+Rnd 5 – 8: sc in all 24 st [24]
+Rnd 9: (2 sc, dec) repeat 6 times [18]
+Rnd 10: (sc, dec) repeat 6 times [12]
+Stuff firmly.
+Rnd 11: dec 6 times [6]
+Fasten off.
+
+Veil
+Ch 30. Crochet in rows.
+Row 1: start in second ch from hook, sc in next 8 st [8] Leave the remaining stitches unworked.
+Row 2: ch 1, turn, 2 sc in each st [16]
+Row 3: ch 1, turn, sc in each st [16]
+Fasten off.
+
+Assembly
+Wrap the foundation chain of the veil around the ball.
+`), { tension: 'normal' });
+    const s = new Solver(model.solverInput);
+    for (let f = 0; f < 300; f++) if (s.step(10) < 0.002) break;
+    const [ball, veil] = model.graph.instances;
+    expect(model.solverInput.instances[1].flat).toBe(false);
+    const c = [0, 1, 2].map((k) => ball.nodeIds.reduce((a, id) => a + s.pos[id * 3 + k], 0) / ball.nodeIds.length);
+    const R = ball.nodeIds.reduce((a, id) => a + Math.hypot(s.pos[id * 3] - c[0], s.pos[id * 3 + 1] - c[1], s.pos[id * 3 + 2] - c[2]), 0) / ball.nodeIds.length;
+    const hanging = veil.rows.slice(1).flatMap((r) => r.nodes);
+    const z = hanging.reduce((a, id) => a + s.pos[id * 3 + 2], 0) / hanging.length;
+    expect(z).toBeLessThan(c[2]); // behind: the front (+z) stays clear
+    const inside = hanging.filter((id) => Math.hypot(s.pos[id * 3] - c[0], s.pos[id * 3 + 1] - c[1], s.pos[id * 3 + 2] - c[2]) < R * 0.9);
+    expect(inside.length).toBe(0);
+  });
+});

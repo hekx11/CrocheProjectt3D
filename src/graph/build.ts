@@ -20,7 +20,7 @@ export interface GNode {
 }
 
 export type EdgeKind = 'yarn' | 'into' | 'ring' | 'join' | 'seam';
-/** stick: a patch stitch held this far out along the host's surface normal (appliqué), not a length. */
+/** stick: a patch stitch held this far out along the host's surface normal (appliqué), not a length; negative: only kept at least that far out. */
 export interface GEdge { a: number; b: number; kind: EdgeKind; rest: number; stick?: number }
 
 export interface GRow {

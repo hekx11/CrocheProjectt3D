@@ -44,6 +44,28 @@ export class Solver {
   private roundWeight?: Float32Array;
   private stuffedMask: Uint8Array | null = null;
   energy = Infinity;
+  private comp?: Int32Array;
+  private stickB?: Uint32Array;
+  private owner?: Int32Array;
+  /** move a clearance stick's surface stitch to a neighbour (same piece) nearer its stitch */
+  private nearestOnSurface(k: number) {
+    const p = this.pos, a = this.input.stick![k] * 3, sb = this.stickB!, own = this.owner!;
+    let b = sb[k / 3];
+    const d2 = (j: number) => (p[j * 3] - p[a]) ** 2 + (p[j * 3 + 1] - p[a + 1]) ** 2 + (p[j * 3 + 2] - p[a + 2]) ** 2;
+    for (let it = 0; it < 4; it++) {
+      let best = b, bd = d2(b);
+      for (let q = this.nbrStart[b]; q < this.nbrStart[b + 1]; q++) {
+        const j = this.nbr[q];
+        if (own[j] !== own[b]) continue;
+        const d = d2(j);
+        if (d < bd) { bd = d; best = j; }
+      }
+      if (best === b) break;
+      b = best;
+    }
+    sb[k / 3] = b;
+  }
+  private compSize?: Float32Array;
 
   constructor(private input: SolverInput) {
     this.pos = input.pos.slice();
@@ -76,6 +98,25 @@ export class Solver {
     if (this.inst.some((pi) => pi.side)) {
       this.pouchMask = new Uint8Array(N).fill(1);
       for (const pi of this.inst) if (pi.side) for (const id of pi.nodeIds) this.pouchMask[id] = input.fixed?.[id] ?? 0;
+    }
+    // joined pieces (edges and sticks): draping one part must not make the whole toy sink
+    if (this.inst.some((pi) => pi.drape)) {
+      const par = new Int32Array(N).map((_, i) => i);
+      const find = (i: number): number => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+      const join = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) par[rb] = ra; };
+      for (let e = 0; e < E; e++) join(input.edges[e * 5], input.edges[e * 5 + 1]);
+      const st = input.stick;
+      if (st) for (let k = 0; k < st.length; k += 3) join(st[k], st[k + 1]);
+      this.comp = new Int32Array(N);
+      for (let i = 0; i < N; i++) this.comp[i] = find(i);
+      this.compSize = new Float32Array(N);
+      for (let i = 0; i < N; i++) this.compSize[this.comp[i]]++;
+    }
+    if (input.stick) {
+      this.stickB = new Uint32Array(input.stick.length / 3);
+      for (let k = 0; k < this.stickB.length; k++) this.stickB[k] = input.stick[k * 3 + 1];
+      this.owner = new Int32Array(N).fill(-1);
+      this.inst.forEach((pi, j) => { for (const id of pi.nodeIds) this.owner![id] = j; });
     }
     this.crease = new Uint8Array(N);
     for (const pi of this.inst) for (const id of pi.crease) this.crease[id] = 1;
@@ -202,6 +243,7 @@ export class Solver {
     }
     // 3. pressure for stuffed pieces, planarity for flat ones
     computeNormals(p, tris, triPiece, this.inst as any, this.nrm);
+    const drop = this.comp ? new Float32Array(this.comp.length) : undefined;
     for (const pi of this.inst) {
       if (pi.stuffed > 0) {
         const f = pi.stuffed * pi.hAvg * 0.1;
@@ -214,7 +256,7 @@ export class Solver {
       // loose fabric hanging from a join (a skirt) drapes down instead of standing out
       if (pi.drape) {
         const g = pi.drape * pi.hAvg;
-        for (const id of pi.nodeIds) if (!(fixed && fixed[id])) p[id * 3 + 1] -= g;
+        for (const id of pi.nodeIds) if (!(fixed && fixed[id])) { p[id * 3 + 1] -= g; if (drop) drop[this.comp![id]] += g; }
       }
       if (pi.rings) this.roundOut(pi.rings, pi.planeNormal);
       if (pi.shape) this.shapeBy(pi);
@@ -239,15 +281,26 @@ export class Solver {
         }
       }
     }
+    // the drape pulled some parts down: lift each joined toy back by the average, so the hanging
+    // part moves against the rest instead of the whole toy sinking frame after frame
+    if (drop && this.comp && this.compSize) for (let i = 0; i < drop.length; i++) {
+      const c = this.comp[i];
+      if (drop[c]) p[i * 3 + 1] += drop[c] / this.compSize[c];
+    }
     const st = this.input.stick;
     if (st) {
       for (let k = 0; k < st.length; k += 3) {
-        const a = st[k] * 3, b = st[k + 1] * 3, off = st[k + 2];
-        for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
+        // a negative offset only keeps the stitch clear of the surface (a veil hanging over hair);
+        // the surface stitch it keeps clear of follows it, to whichever neighbour is now nearest
+        if (st[k + 2] < 0) this.nearestOnSurface(k);
+        const a = st[k] * 3, b = this.stickB![k / 3] * 3, off = Math.abs(st[k + 2]);
+        if (st[k + 2] >= 0) for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
         // never inside the clearance: a cap that is tighter than the host would otherwise sink
         // into it and the host's colour shows through in patches
         const d = (p[a] - p[b]) * this.nrm[b] + (p[a + 1] - p[b + 1]) * this.nrm[b + 1] + (p[a + 2] - p[b + 2]) * this.nrm[b + 2];
-        if (d < off) for (let c = 0; c < 3; c++) p[a + c] += this.nrm[b + c] * (off - d);
+        // (a clearance only holds over the surface: past the edge of the hair it lets go)
+        const lat = st[k + 2] < 0 ? (p[a] - p[b]) ** 2 + (p[a + 1] - p[b + 1]) ** 2 + (p[a + 2] - p[b + 2]) ** 2 - d * d : 0;
+        if (d < off && lat < 4 * off * off) for (let c = 0; c < 3; c++) p[a + c] += this.nrm[b + c] * (off - d);
       }
     }
     let maxMove = 0;

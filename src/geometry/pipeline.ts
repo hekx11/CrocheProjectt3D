@@ -61,6 +61,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     edges.set([e.a, e.b, e.rest, STIFF[e.kind], slack], i * 5);
   });
   const fixed = new Uint8Array(graph.nodes.length);
+  const wrapped = (pi: (typeof graph.instances)[number]) => pi.stuffed === 0 && pi.piece.construction === 'rows' && pattern.seams.some((q) => q.piece === pi.piece.id && q.hint === 'wrap');
   const instances = graph.instances.map((pi) => {
     let h = 0;
     for (const id of pi.nodeIds) h += graph.nodes[id].h;
@@ -82,10 +83,13 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       stuffed: pi.stuffed,
       // a flat circle worked in rounds (a coaster): every closed round, for rounding out
       rings: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes) : undefined,
-      drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : 0,
+      // (and a strip wrapped round something, a veil or a collar, hangs from where it is tied)
+      // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
+      drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : wrapped(pi) ? 0.012 : 0,
       closed: pi.piece.finish === 'closed',
       shape: pi.piece.shape,
-      flat: pi.flat,
+      // a strip wrapped round something (a collar, a scarf, a veil) is bent round it, not flat
+      flat: pi.flat && !wrapped(pi),
       side,
       planeNormal,
       hAvg: h / Math.max(1, pi.nodeIds.length),
