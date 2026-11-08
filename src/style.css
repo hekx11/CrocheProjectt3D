@@ -83,6 +83,14 @@ select, input[type='number'] { background: var(--panel); border: 1px solid var(-
 .panel input, .panel select { width: 140px; }
 .panel fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; padding: 4px 10px; }
 .panel fieldset input { width: 90px; }
+.panel label.check { justify-content: flex-start; }
+.panel label.check input { width: auto; }
+.panel a { color: var(--accent); }
+.ai-card { position: fixed; left: 16px; bottom: 16px; width: min(460px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: 0 12px 30px rgba(0,0,0,.16); z-index: 11; }
+.ai-head { margin-bottom: 6px; }
+.ai-card code { display: block; font: 13px/1.5 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
+.ai-verdict { font-size: 12px; display: flex; gap: 6px; align-items: baseline; }
+.ask-ai { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 0 6px; font-size: 11px; border-radius: 6px; margin-left: auto; flex: none; }
 .row-end { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 
 .pdf-dialog { width: min(1000px, 96vw); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); padding: 16px; }

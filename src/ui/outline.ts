@@ -3,7 +3,9 @@ import type { Pattern } from '../model/types';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /** Pieces → sections → row runs with counts, plus the list of lines that need a look. */
-export function renderOutline(el: HTMLElement, summary: HTMLElement, p: Pattern, goto: (line: number) => void) {
+const HELP = new Set(['unknown-token', 'count-mismatch', 'ambiguous']);
+
+export function renderOutline(el: HTMLElement, summary: HTMLElement, p: Pattern, goto: (line: number) => void, askAi?: (line: number) => void) {
   const parts: string[] = [];
   let rowsTotal = 0, sts = 0;
   for (const pc of p.pieces) {
@@ -40,10 +42,11 @@ export function renderOutline(el: HTMLElement, summary: HTMLElement, p: Pattern,
   const issues = p.diagnostics.filter((d) => d.severity !== 'info');
   if (p.diagnostics.length) {
     parts.push(`<div class="piece"><h3>Notes from the parser</h3><ul class="diag-list">`);
-    for (const d of p.diagnostics) parts.push(`<li data-line="${d.line}"><span class="dot ${d.severity === 'error' ? 'unreadable' : d.severity === 'warning' ? 'ambiguous' : 'assumption'}"></span><span>line ${d.line + 1}: ${esc(d.message)}</span></li>`);
+    for (const d of p.diagnostics) parts.push(`<li data-line="${d.line}"><span class="dot ${d.severity === 'error' ? 'unreadable' : d.severity === 'warning' ? 'ambiguous' : 'assumption'}"></span><span>line ${d.line + 1}: ${esc(d.message)}</span>${askAi && HELP.has(d.code) ? `<button class="ask-ai" data-ask="${d.line}" title="Ask AI to suggest short syntax for this line">Ask AI</button>` : ''}</li>`);
     parts.push('</ul></div>');
   }
   el.innerHTML = parts.join('') || '<p class="muted">Type a round like <code>Rnd 1: 6 sc in MR (6)</code> to start.</p>';
   el.querySelectorAll<HTMLElement>('[data-line]').forEach((li) => li.addEventListener('click', () => goto(+li.dataset.line!)));
+  el.querySelectorAll<HTMLElement>('[data-ask]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); askAi?.(+b.dataset.ask!); }));
   summary.textContent = `· ${p.pieces.reduce((a, x) => a + x.quantity, 0)} piece(s), ${rowsTotal} rows, ${sts} stitches${issues.length ? ` · ${issues.length} to check` : ''}`;
 }

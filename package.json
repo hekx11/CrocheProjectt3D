@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/hekx11/CrocheProjectt3D#readme",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@codemirror/language": "^6.13.1",
     "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.7.6",

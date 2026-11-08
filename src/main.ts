@@ -9,6 +9,7 @@ import { CrochetView } from './render/scene';
 import type { Pattern } from './model/types';
 import { renderOutline } from './ui/outline';
 import { importPdf, renderPage } from './pdf/extract';
+import { setupAi, HELP_CODES } from './ui/ai';
 
 import ball from '../fixtures/ball.txt?raw';
 import bear from '../fixtures/bear-head.txt?raw';
@@ -145,9 +146,10 @@ function rebuild(force: boolean) {
   const diags: CmDiagnostic[] = pattern.diagnostics.map((d) => ({
     from: Math.min(d.src.from, text.length), to: Math.min(Math.max(d.src.to, d.src.from), text.length),
     severity: d.severity, message: d.message,
+    actions: HELP_CODES.has(d.code) ? [{ name: 'Ask AI', apply: () => ai.ask(d.line) }] : undefined,
   }));
   editor.dispatch(setDiagnostics(editor.state, diags));
-  renderOutline($('outline'), $('outline-summary'), pattern, (line) => gotoLine(line));
+  renderOutline($('outline'), $('outline-summary'), pattern, (line) => gotoLine(line), (line) => ai.ask(line));
 
   const topology = JSON.stringify([pattern.pieces.map((p) => [p.name, p.quantity, p.rows.map((r) => [r.computedCount, r.yarnId, r.line])]), pattern.seams.length, user]);
   if (!force && topology === lastTopology) return;
@@ -186,6 +188,16 @@ view.onPick = (line) => {
   view.highlight(line);
 };
 void activeLineDeco;
+
+// ---------------------------------------------------------------- AI helper (optional, user's own key)
+const ai = setupAi({
+  text: () => editor.state.doc.toString(),
+  pattern: () => pattern,
+  replaceLine(line, text) {
+    const l = editor.state.doc.line(line + 1);
+    editor.dispatch({ changes: { from: l.from, to: l.to, insert: text } });
+  },
+});
 
 // ---------------------------------------------------------------- toolbar
 const ex = $('examples') as HTMLSelectElement;

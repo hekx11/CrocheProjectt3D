@@ -27,6 +27,7 @@ Everything runs in your browser: no server, no upload, no account.
   Your tension (tight, normal or loose) is taken into account, and the yarn (chenille, cotton, wool…) changes how it looks.
 - **PDF import.** The text is read with pdf.js, the row-number and instruction columns are paired back up, and you review the result before it is used.
 - **Clarify a line yourself.** Add `=> <short syntax>` after a line the parser can't read, e.g. `Make the round loosely as before => 18 slst blo loose`.
+- **Or ask AI (optional).** On a flagged line, *Ask AI* has Claude propose the `=> …` short syntax. The app re-parses it and checks the stitch count before you choose to use it. It uses your own Anthropic API key, called straight from your browser (set it under *AI helper*). Only that line and a few lines around it are sent. The key stays in memory unless you tick "remember". Without a key the app works exactly as before.
 
 ## Develop
 
