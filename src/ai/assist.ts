@@ -1,22 +1,16 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { parsePattern } from '../parser/parse';
 import { extractCount } from '../parser/row';
 import type { Pattern } from '../model/types';
 
 /**
  * Optional "Ask AI" helper for lines the rule-based parser can't read.
- * It runs in the browser with the user's own Anthropic API key. The model only proposes a
- * short-syntax `=> …` annotation; the parser and the stitch count check decide whether it is usable,
- * and the user applies it by hand. Nothing is changed automatically.
+ * The model is free and runs on the user's own device (see local.ts); nothing leaves the browser.
+ * It only proposes a short-syntax `=> …` annotation; the parser and the stitch count check decide
+ * whether it is usable, and the user applies it by hand. Nothing is changed automatically.
  */
 
-export type AiModel = 'claude-opus-5-5' | 'claude-haiku-5-5';
-export const AI_MODELS: { id: AiModel; label: string }[] = [
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (best)' },
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 (cheapest)' },
-];
-
-export interface AiSettings { key: string; model: AiModel }
+/** One chat completion: system + user prompt in, JSON text out. */
+export type Complete = (system: string, user: string, schema: object, signal?: AbortSignal) => Promise<string>;
 
 export interface Suggestion {
   line: number;
@@ -49,7 +43,14 @@ Rules:
 - Use the previous row's stitch count to make the count work: every stitch of the previous row should normally be worked into once.
 - Keep the meaning of the original. If the line is only a note with no stitches, answer with an empty "syntax" and say so.
 - If the line refers to an earlier row ("as round 3", "repeat rows 2-4"), expand it from the context you are given.
-- "explanation" is one short sentence for the crocheter, in plain words, saying how you read the line.`;
+- "explanation" is one short sentence for the crocheter, in plain words, saying how you read the line.
+- Answer only with JSON: {"syntax": "...", "explanation": "..."}.
+
+Examples (previous row count, line -> syntax):
+- 12, "Rnd 3: *sc in next st, 2 sc in next st; repeat from * around (18)" -> "(sc, inc) x6 (18)"
+- 10, "Row 2: ch 1 and turn, then single crochet in every stitch across (10)" -> "ch 1, turn, 10 sc (10)"
+- 24, "Rnd 6: work the round in the back loops only with one sc in each st" -> "24 sc blo (24)"
+- 18, "Rnd 7: make a decrease, then 1 sc in each of the next 4, all the way around (15)" -> "(dec, 4 sc) x3 (15)"`;
 
 const SCHEMA = {
   type: 'object',
@@ -114,48 +115,28 @@ export function describeLine(text: string, p: Pattern, line: number): string {
 
 export class AiError extends Error {}
 
-export async function suggest(text: string, p: Pattern, line: number, settings: AiSettings, signal?: AbortSignal): Promise<Suggestion> {
-  if (!settings.key) throw new AiError('Add your Anthropic API key in the AI helper settings first.');
-  // The key is the user's own and only goes to api.anthropic.com from their browser.
-  const client = new Anthropic({ apiKey: settings.key, dangerouslyAllowBrowser: true, maxRetries: 1 });
-  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: describeLine(text, p, line) }];
-  let last: { syntax: string; explanation: string; newLine: string; ok: boolean; message: string } | null = null;
+const ATTEMPTS = 3;
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    let res: Anthropic.Beta.BetaMessage;
-    try {
-      res = await client.beta.messages.create({
-        model: settings.model,
-        max_tokens: 16000,
-        system: SYNTAX_GUIDE,
-        messages,
-        output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
-        ...(settings.model === 'claude-opus-5-5' ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
-      }, { signal });
-    } catch (e) {
-      if (e instanceof Anthropic.AuthenticationError) throw new AiError('The API key was not accepted. Check it in the AI helper settings.');
-      if (e instanceof Anthropic.PermissionDeniedError) throw new AiError('This API key cannot use that model.');
-      if (e instanceof Anthropic.RateLimitError) throw new AiError('Rate limited by the API. Try again in a minute.');
-      if (e instanceof Anthropic.APIUserAbortError) throw new AiError('Cancelled.');
-      if (e instanceof Anthropic.APIConnectionError) throw new AiError('Could not reach the Anthropic API. Check your connection.');
-      if (e instanceof Anthropic.APIError) throw new AiError(`API error ${e.status ?? ''}: ${e.message}`);
-      throw e;
+export async function suggest(text: string, p: Pattern, line: number, complete: Complete, signal?: AbortSignal): Promise<Suggestion> {
+  const base = describeLine(text, p, line);
+  let feedback = '';
+  let last: Suggestion | null = null;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const raw = await complete(SYNTAX_GUIDE, base + feedback, SCHEMA, signal);
+    let out: { syntax?: string; explanation?: string };
+    try { out = JSON.parse(raw); } catch { out = {}; }
+    const syntax = (out.syntax ?? '').trim();
+    const explanation = (out.explanation ?? '').trim();
+    if (!syntax) {
+      last = { line, syntax: '', explanation: explanation || 'No short syntax suggested.', newLine: text.split('\n')[line], check: { ok: false, message: 'No short syntax suggested.' }, attempts: attempt };
+      feedback = '\n\nYour previous answer had no usable "syntax". Answer with the short syntax for the line.';
+      continue;
     }
-    if (res.stop_reason === 'refusal') throw new AiError('The model declined to answer this line.');
-    if (res.stop_reason === 'max_tokens') throw new AiError('The answer was cut off. Try again.');
-    const textBlock = res.content.find((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text');
-    let out: { syntax: string; explanation: string };
-    try { out = JSON.parse(textBlock?.text ?? ''); } catch { throw new AiError('The model gave an answer the app could not read. Try again.'); }
-    if (!out.syntax.trim()) {
-      return { line, syntax: '', explanation: out.explanation || 'No stitches in this line.', newLine: text.split('\n')[line], check: { ok: false, message: 'No short syntax suggested.' }, attempts: attempt };
-    }
-    const c = checkCandidate(text, line, out.syntax);
-    last = { ...out, ...c, syntax: c.syntax };
+    const c = checkCandidate(text, line, syntax);
+    last = { line, syntax: c.syntax, explanation, newLine: c.newLine, check: { ok: c.ok, message: c.message }, attempts: attempt };
     if (c.ok) break;
-    // feed the parser's verdict back once, append-only
-    messages.push({ role: 'assistant', content: res.content });
-    messages.push({ role: 'user', content: `The app parsed "${c.syntax}" and said: ${c.message} Please correct the short syntax.` });
+    // small local models: give the parser's verdict back in a fresh prompt (no chat history needed)
+    feedback = `\n\nA previous answer was "${c.syntax}", and the app said: ${c.message} Give a corrected short syntax.`;
   }
-  const l = last!;
-  return { line, syntax: l.syntax, explanation: l.explanation, newLine: l.newLine, check: { ok: l.ok, message: l.message }, attempts: messages.length > 1 ? 2 : 1 };
+  return last!;
 }

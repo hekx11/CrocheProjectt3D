@@ -88,12 +88,12 @@
 
     <aside id="ai" class="panel" hidden aria-label="AI helper">
       <h2>AI helper</h2>
-      <p class="muted small">Optional. For a line the app can't read, "Ask AI" proposes short syntax, the app checks it, and you decide whether to use it. It uses your own Anthropic API key, straight from this browser: the line and a few lines around it are sent to Anthropic, nothing else.</p>
-      <label>API key <input id="ai-key" type="password" autocomplete="off" placeholder="sk-ant-…" /></label>
-      <label class="check"><input id="ai-remember" type="checkbox" /> Remember the key on this device</label>
+      <p class="muted small">Optional and free. For a line the app can't read, "Ask AI" proposes short syntax, the app checks it, and you decide whether to use it. The AI runs on your own device: nothing is sent anywhere and there's no account or key.</p>
       <label>Model <select id="ai-model"></select></label>
-      <p class="muted small"><a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get an API key</a> · each line costs a fraction of a cent.</p>
-      <div class="row-end"><button id="ai-forget" class="ghost">Forget key</button><button id="ai-close">Done</button></div>
+      <p id="ai-status" class="muted small"></p>
+      <div class="progress" hidden><div id="ai-bar"></div></div>
+      <p class="muted small">The model is downloaded once and kept by your browser, then works offline. It needs WebGPU (current Chrome or Edge on a computer works best).</p>
+      <div class="row-end"><button id="ai-remove" class="ghost" title="Delete the downloaded model from this browser">Remove download</button><button id="ai-load">Download now</button><button id="ai-close" class="ghost">Done</button></div>
     </aside>
 
     <aside id="ai-card" class="ai-card" hidden aria-live="polite">

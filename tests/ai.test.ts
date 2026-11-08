@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { parsePattern } from '../src/parser/parse';
 import { checkCandidate, describeLine, suggest } from '../src/ai/assist';
 
@@ -27,26 +27,13 @@ describe('AI helper', () => {
     expect(d).toContain('>> Rnd 3');
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('retries once with the parser verdict, then returns a checked suggestion', async () => {
-    const answers = ['(2 sc, inc) x6', '(sc, inc) x6'];
-    const bodies: any[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
-      bodies.push(JSON.parse(String(init.body)));
-      const syntax = answers.shift();
-      return new Response(JSON.stringify({
-        id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', stop_sequence: null,
-        content: [{ type: 'text', text: JSON.stringify({ syntax, explanation: 'One sc, then an increase, six times.' }) }],
-        usage: { input_tokens: 1, output_tokens: 1 },
-      }), { status: 200, headers: { 'content-type': 'application/json' } });
-    }));
-    const s = await suggest(TEXT, parsePattern(TEXT), 3, { key: 'sk-test', model: 'claude-opus-5-5' });
+  it('retries with the parser verdict, then returns a checked suggestion', async () => {
+    const answers = ['not json', JSON.stringify({ syntax: '(2 sc, inc) x6', explanation: 'x' }), JSON.stringify({ syntax: '(sc, inc) x6', explanation: 'One sc, then an increase, six times.' })];
+    const prompts: string[] = [];
+    const s = await suggest(TEXT, parsePattern(TEXT), 3, async (_sys, user) => { prompts.push(user); return answers.shift()!; });
     expect(s.check.ok).toBe(true);
     expect(s.syntax).toBe('(sc, inc) x6 (18)');
-    expect(bodies).toHaveLength(2);
-    expect(bodies[0].fallbacks).toBe('default');
-    expect(bodies[0].output_config.format.type).toBe('json_schema');
-    expect(bodies[1].messages.at(-1).content).toContain('Please correct');
+    expect(s.attempts).toBe(3);
+    expect(prompts[2]).toContain('A previous answer was "(2 sc, inc) x6 (18)"');
   });
 });
