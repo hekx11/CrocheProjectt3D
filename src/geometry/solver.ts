@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; flat: boolean; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -24,6 +24,9 @@ export interface SolverInput {
 export const STRETCH_CAP = 0.1;
 /** Extra smoothing on stuffed pieces (stuffing evens the shape out). */
 export const ROUNDING = 0.1;
+/** How firmly a flattened pouch (ears) is held flat; low lets it cup a little instead of crumpling. */
+export const PUCKER = 0.15;
+export const POUCH_SMOOTH = 0.3;
 
 export class Solver {
   pos: Float32Array;
@@ -33,6 +36,7 @@ export class Solver {
   private nbr: Uint32Array;
   private inst: SolverInput['instances'];
   private crease: Uint8Array;
+  private pouchMask?: Uint8Array;
   private stuffedMask: Uint8Array | null = null;
   energy = Infinity;
 
@@ -55,10 +59,17 @@ export class Solver {
       this.nbr[fill[a]++] = b;
       this.nbr[fill[b]++] = a;
     }
-    // mask of nodes NOT on a stuffed piece (laplace() skips "fixed" nodes)
+    // mask of nodes NOT on a closed stuffed piece (laplace() skips "fixed" nodes); open pieces sewn
+    // on (a snout) keep their dome: smoothing an open edge would flatten it
     if (this.inst.some((pi) => pi.stuffed > 0)) {
       this.stuffedMask = new Uint8Array(N).fill(1);
-      for (const pi of this.inst) if (pi.stuffed > 0) for (const id of pi.nodeIds) this.stuffedMask[id] = input.fixed?.[id] ?? 0;
+      for (const pi of this.inst) if (pi.stuffed > 0 && pi.closed !== false) for (const id of pi.nodeIds) this.stuffedMask[id] = input.fixed?.[id] ?? 0;
+    }
+    // mask of nodes NOT on a flattened pouch (ears): those get extra smoothing so the soft
+    // double layer evens out instead of crumpling where its round end can't lie flat
+    if (this.inst.some((pi) => pi.side)) {
+      this.pouchMask = new Uint8Array(N).fill(1);
+      for (const pi of this.inst) if (pi.side) for (const id of pi.nodeIds) this.pouchMask[id] = input.fixed?.[id] ?? 0;
     }
     this.crease = new Uint8Array(N);
     for (const pi of this.inst) for (const id of pi.crease) this.crease[id] = 1;
@@ -122,6 +133,7 @@ export class Solver {
       // stuffing fills the fabric out evenly: on stuffed pieces, extra smoothing without the
       // shrink-back step rounds off flat ends and sharp rims (pressure keeps the volume up)
       if (this.stuffedMask) this.laplace(ROUNDING, this.stuffedMask);
+      if (this.pouchMask) { this.laplace(POUCH_SMOOTH, this.pouchMask); this.laplace(-POUCH_SMOOTH * 1.04, this.pouchMask); }
     }
     // 3. pressure for stuffed pieces, planarity for flat ones
     computeNormals(p, tris, triPiece, this.inst as any, this.nrm);
@@ -141,10 +153,17 @@ export class Solver {
         const k = 1 / Math.max(1, pi.nodeIds.length);
         cx *= k; cy *= k; cz *= k;
         [nx, ny, nz] = pi.planeNormal;
-        for (const id of pi.nodeIds) {
+        // flattened pouches keep their two layers a yarn apart (side = -1 back, 1 front, 0 fold)
+        const half = pi.hAvg * 0.3;
+        for (let j = 0; j < pi.nodeIds.length; j++) {
+          const id = pi.nodeIds[j];
           const i = id * 3;
-          const d = (p[i] - cx) * nx + (p[i + 1] - cy) * ny + (p[i + 2] - cz) * nz;
-          p[i] -= d * nx * 0.3; p[i + 1] -= d * ny * 0.3; p[i + 2] -= d * nz * 0.3;
+          const sd = pi.side ? pi.side[j] : 0;
+          const d = (p[i] - cx) * nx + (p[i + 1] - cy) * ny + (p[i + 2] - cz) * nz - sd * half;
+          // a pouch may cup outward (its round end can't lie perfectly flat) but its layers never
+          // cross: strong push back when a layer comes inside, only a gentle pull otherwise
+          const k = sd !== 0 && d * sd < 0 ? 0.6 : pi.side ? PUCKER : 0.3;
+          p[i] -= d * nx * k; p[i + 1] -= d * ny * k; p[i + 2] -= d * nz * k;
         }
       }
     }

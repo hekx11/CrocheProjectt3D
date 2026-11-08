@@ -59,11 +59,24 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     for (const id of pi.nodeIds) h += graph.nodes[id].h;
     const crease: number[] = [];
     for (const r of pi.rows) if (r.loop !== 'both') crease.push(...r.nodes);
+    const planeNormal = s.planeNormals.get(pi) ?? [0, 1, 0];
+    // a flattened cup (ears) is a pouch: two layers of fabric, front and back, a yarn apart.
+    // Remember which layer each stitch is on (from the squashed seed) so they don't merge.
+    let side: number[] | undefined;
+    if (pi.piece.flatten) {
+      const c = [0, 0, 0];
+      for (const id of pi.nodeIds) for (let k = 0; k < 3; k++) c[k] += s.pos[id * 3 + k] / pi.nodeIds.length;
+      const d = pi.nodeIds.map((id) => (s.pos[id * 3] - c[0]) * planeNormal[0] + (s.pos[id * 3 + 1] - c[1]) * planeNormal[1] + (s.pos[id * 3 + 2] - c[2]) * planeNormal[2]);
+      const dm = Math.max(1e-6, ...d.map(Math.abs));
+      side = d.map((x) => (Math.abs(x) < dm * 0.2 ? 0 : Math.sign(x)));
+    }
     return {
       nodeIds: pi.nodeIds,
       stuffed: pi.stuffed,
+      closed: pi.piece.finish === 'closed',
       flat: pi.flat,
-      planeNormal: s.planeNormals.get(pi) ?? [0, 1, 0],
+      side,
+      planeNormal,
       hAvg: h / Math.max(1, pi.nodeIds.length),
       crease,
     };

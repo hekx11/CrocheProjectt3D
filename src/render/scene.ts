@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Model } from '../geometry/pipeline';
 import { computeNormals } from '../geometry/mesh';
-import { yarnTextures, type YarnTextures } from './textures';
+import { yarnTextures, type YarnTextures, STITCH_BAND, TR } from './textures';
 
 /**
  * Renders the solved stitch surface. Triangles are expanded (non-indexed) so each one can carry
@@ -109,12 +109,18 @@ export class CrochetView {
         const n = nodes[tris[t + k]];
         L = Math.max(L, rowLen.get(`${n.piece}:${n.inst}:${n.row}`) ?? 1);
       }
+      // the stitch a triangle shows belongs to its upper row: use that stitch's type to pick the
+      // texture band (sc / hdc / dc), and count v from the tile start below so it stays in the band
+      let top = 0;
+      for (let k = 1; k < 3; k++) if (vs[k] > vs[top]) top = k;
+      const band = STITCH_BAND[nodes[tris[t + top]].type] ?? 0;
+      const base = TR * Math.floor(Math.min(vs[0], vs[1], vs[2]) / TR);
       for (let k = 0; k < 3; k++) {
         let u = Number.isNaN(us[k]) ? ref : us[k];
         if (u - ref > 0.5) u -= 1;
         if (ref - u > 0.5) u += 1;
         cornerUv[(t + k) * 2] = u * L;
-        cornerUv[(t + k) * 2 + 1] = vs[k];
+        cornerUv[(t + k) * 2 + 1] = vs[k] - base + band * TR;
       }
     }
     // Tessellate every triangle into SUB² small ones so the stitch relief can really push the
