@@ -106,6 +106,8 @@ export interface PieceDef {
   finish: 'closed' | 'open' | 'open-with-tail';
   stuffing: 'none' | 'light' | 'firm' | 'unspecified';
   flatten: boolean;
+  /** Shaping after stuffing: "shape into a triangle", "flatten the bottom", "shape into an oval". */
+  shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean };
   line: number;
 }
 

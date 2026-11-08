@@ -163,3 +163,21 @@ Fasten off. Attach the coffee to the cup, joining through the back loop of the c
     expect(p.pieces.map((q) => q.stuffing)).toEqual(['firm', 'firm']);
   });
 });
+
+describe('shaping words and yarn types', () => {
+  it('reads "shape into a triangle", "flatten the bottom" and polyester / plush yarn', () => {
+    const p = parsePattern(`Test
+Hook: 3 mm, white polyester yarn, polyester stuffing
+Body
+Rnd 1: 6 sc in MR (6)
+Rnd 2: inc x6 (12)
+Rnds 3-4: sc around (12)
+Stuff firmly and shape into a triangle. Flatten the bottom.
+Rnd 5: dec x6 (6)
+Fasten off.
+`);
+    expect(p.pieces[0].shape).toEqual({ triangle: true, flatBottom: true });
+    expect(p.materials.fiber).toBe('polyester');
+    expect(parsePattern('Test\nHook: 5 mm, plush chenille yarn\nRnd 1: 6 sc in MR (6)\n').materials.fiber).toBe('chenille');
+  });
+});

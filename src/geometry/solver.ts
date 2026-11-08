@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -39,6 +39,7 @@ export class Solver {
   private inst: SolverInput['instances'];
   private crease: Uint8Array;
   private pouchMask?: Uint8Array;
+  private shapeBase = new Map<object, number>();
   /** how hard stuffing rounds each node out: firmer stuffing rounds more (stuffed²) */
   private roundWeight?: Float32Array;
   private stuffedMask: Uint8Array | null = null;
@@ -98,6 +99,38 @@ export class Solver {
     for (let i = 0; i < p.length; i++) p[i] += d[i];
   }
 
+  /**
+   * Hand shaping of a stuffed piece, as a gentle pull toward the shape (world up = +y, front = +z):
+   * triangle = width tapers toward the top and the piece is a bit thinner front to back (onigiri);
+   * flatBottom = nodes below a base plane are pushed up onto it; oval = taller than wide.
+   */
+  private shapeBy(pi: { nodeIds: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean } }) {
+    const p = this.pos, ids = pi.nodeIds, sh = pi.shape!;
+    let cx = 0, cy = 0, cz = 0, y0 = Infinity, y1 = -Infinity;
+    for (const id of ids) { cx += p[id * 3]; cy += p[id * 3 + 1]; cz += p[id * 3 + 2]; y0 = Math.min(y0, p[id * 3 + 1]); y1 = Math.max(y1, p[id * 3 + 1]); }
+    cx /= ids.length; cy /= ids.length; cz /= ids.length;
+    const H = Math.max(1e-6, y1 - y0), k = 0.08;
+    for (const id of ids) {
+      const i = id * 3;
+      if (sh.triangle) {
+        const t = (p[i + 1] - y0) / H; // 0 bottom … 1 top
+        const sx = 1.35 - 1.0 * t;
+        p[i] += (cx + (p[i] - cx) * sx - p[i]) * k;
+        p[i + 2] += (cz + (p[i + 2] - cz) * 0.8 - p[i + 2]) * k;
+      }
+      if (sh.oval) {
+        p[i + 1] += (cy + (p[i + 1] - cy) * 1.15 - p[i + 1]) * k;
+        p[i] += (cx + (p[i] - cx) * 0.93 - p[i]) * k;
+        p[i + 2] += (cz + (p[i + 2] - cz) * 0.93 - p[i + 2]) * k;
+      }
+      if (sh.flatBottom || sh.triangle) {
+        // the base plane is set once, where it first sits (pushing it up every step would creep)
+        const base = this.shapeBase.get(pi) ?? (this.shapeBase.set(pi, y0 + H * 0.12), y0 + H * 0.12);
+        if (p[i + 1] < base) p[i + 1] += (base - p[i + 1]) * 0.3;
+      }
+    }
+  }
+
   /** Run `iters` iterations; returns the largest node movement (mm). */
   step(iters = 8): number {
     const { edges, tris, triPiece, fixed, give } = this.input;
@@ -151,6 +184,7 @@ export class Solver {
           p[i] += this.nrm[i] * f; p[i + 1] += this.nrm[i + 1] * f; p[i + 2] += this.nrm[i + 2] * f;
         }
       }
+      if (pi.shape) this.shapeBy(pi);
       if (pi.flat) {
         // pull toward the best-fit plane through the centroid (normal = average normal)
         let cx = 0, cy = 0, cz = 0, nx = 0, ny = 0, nz = 0;

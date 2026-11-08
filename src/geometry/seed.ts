@@ -254,7 +254,7 @@ function attach(
   if (ra === undefined) {
     if (seam.hint === 'top') { ra = 2; rb = Math.max(3, Math.round(hostRows.length * 0.3)); }
     else if (seam.hint === 'bottom') { ra = hostRows.length - 2; rb = hostRows.length; }
-    else if (/\blower\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.6); rb = Math.round(hostRows.length * 0.75); }
+    else if (/\blower\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.72); rb = Math.round(hostRows.length * 0.85); }
     else if (/\bupper\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.25); rb = Math.round(hostRows.length * 0.4); }
     else { const mid = Math.round(hostRows.length * 0.5); ra = mid - 1; rb = mid + 1; }
   }

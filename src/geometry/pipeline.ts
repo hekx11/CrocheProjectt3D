@@ -81,6 +81,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       nodeIds: pi.nodeIds,
       stuffed: pi.stuffed,
       closed: pi.piece.finish === 'closed',
+      shape: pi.piece.shape,
       flat: pi.flat,
       side,
       planeNormal,

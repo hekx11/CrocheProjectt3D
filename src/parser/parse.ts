@@ -43,7 +43,8 @@ function readMaterials(line: string, mat: Materials, terms: 'US' | 'UK'): boolea
     const w = /weight\s*(\d)\b|\(\s*(\d)\s*\)|#\s*(\d)\b/.exec(t);
     let weight: number | undefined = w ? +(w[1] ?? w[2] ?? w[3]) : undefined;
     if (weight === undefined) for (const [re, n] of WEIGHT_NAMES) if (re.test(t)) { weight = n; break; }
-    const fiber = Object.keys(FIBERS).find((f) => t.includes(f));
+    // "polyester stuffing" is filling, not the yarn
+    const fiber = Object.keys(FIBERS).find((f) => (f === 'polyester' ? /polyester(?!\s*(stuffing|fiberfill|filling|fill))/.test(t) : t.includes(f)));
     const color = colorIn(t);
     if (weight !== undefined) mat.weight = mat.weight ?? weight;
     if (fiber) mat.fiber = mat.fiber ?? fiber;
@@ -425,7 +426,11 @@ export function parsePattern(text: string): Pattern {
       }
       if (/(do not|don't) stuff/.test(s)) { if (p) p.stuffing = 'none'; kind = 'marker'; }
       else if (/\bstuff/.test(s)) { if (p) p.stuffing = /light/.test(s) ? 'light' : 'firm'; kind = 'marker'; }
-      if (/\bflatten/.test(s) && p) { p.flatten = true; kind = 'marker'; }
+      // shaping a stuffed piece by hand: triangle (onigiri), flat base so it stands, oval (egg)
+      if (p && /\b(shape|mould|mold|press|form)\b[^.]*\btriang/.test(s)) { (p.shape ??= {}).triangle = true; kind = 'marker'; }
+      else if (p && /\bflat(ten)?\b[^.]*\b(bottom|base)\b|\b(bottom|base)\b[^.]*\bflat/.test(s)) { (p.shape ??= {}).flatBottom = true; kind = 'marker'; }
+      else if (/\bflatten/.test(s) && p) { p.flatten = true; kind = 'marker'; }
+      if (p && /\b(shape|mould|mold|form)\b[^.]*\b(oval|egg)/.test(s)) { (p.shape ??= {}).oval = true; kind = 'marker'; }
       if (!p) continue;
       const between = /between\s+(?:rnds?|rows?|rounds?|r)\.?\s*(\d+)\s*(?:and|&|-|to)\s*(?:(?:rnds?|rows?|rounds?|r)\.?\s*)?(\d+)/.exec(s);
       const atRow = /(?:at|on|in)\s+(?:rnd|row|round|r)\.?\s*(\d+)/.exec(s);

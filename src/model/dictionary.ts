@@ -43,6 +43,10 @@ export const FIBERS: Record<string, { stiffness: number; sheen: number; roughnes
   chenille: { stiffness: 0.7, sheen: 1.0, roughness: 0.6, fuzz: 0.8 },
   velvet: { stiffness: 0.7, sheen: 1.0, roughness: 0.55, fuzz: 0.8 },
   mohair: { stiffness: 0.6, sheen: 0.8, roughness: 0.95, fuzz: 0.95 },
+  // polyester plush / blanket yarn: like chenille, a little denser and shinier
+  plush: { stiffness: 0.7, sheen: 1.0, roughness: 0.55, fuzz: 0.85 },
+  // smooth plied polyester: firm, with a satin shine and almost no fuzz
+  polyester: { stiffness: 1.0, sheen: 0.5, roughness: 0.5, fuzz: 0.05 },
 };
 
 export const COLORS: Record<string, string> = {

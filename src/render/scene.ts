@@ -3,6 +3,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Model } from '../geometry/pipeline';
 import { computeNormals } from '../geometry/mesh';
 import { yarnTextures, type YarnTextures, STITCH_BAND, TR } from './textures';
+import { Yarn3D } from './yarn3d';
+
+/** Stitches drawn as real 3D yarn; "?yarn=flat" falls back to the textured surface alone. */
+const YARN3D = typeof location === 'undefined' || !/[?&]yarn=flat\b/.test(location.search);
 
 /**
  * Renders the solved stitch surface. Triangles are expanded (non-indexed) so each one can carry
@@ -20,6 +24,7 @@ export class CrochetView {
   private corner: Uint32Array = new Uint32Array();
   private relief = { map: null as THREE.Texture | null, scale: 0, bias: 0 };
   private markers = new THREE.Group();
+  private yarn = new Yarn3D();
   private model: Model | null = null;
   private pos: Float32Array = new Float32Array();
   private nrm: Float32Array = new Float32Array();
@@ -48,6 +53,7 @@ export class CrochetView {
     this.scene.add(this.markers);
     this.scene.add(this.shells);
     this.scene.add(this.ridges);
+    this.scene.add(this.yarn.group);
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.domElement.addEventListener('pointerup', (e) => this.pick(e));
@@ -170,7 +176,15 @@ export class CrochetView {
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.scene.add(this.mesh);
-    this.addShells(geo, yt, sz.w);
+    if (YARN3D) {
+      // the surface is now what shows between the strands: darker, like the inside of the fabric
+      mat.color.setScalar(0.5);
+      mat.sheen = 0;
+      this.yarn.build(model, look);
+    } else {
+      this.yarn.dispose();
+      this.addShells(geo, yt, sz.w);
+    }
     this.buildRidges(model, yt);
     this.nrm = new Float32Array(model.solverInput.pos.length);
     this.applyColors();
@@ -330,6 +344,15 @@ export class CrochetView {
       }
     }
     col.needsUpdate = true;
+    if (YARN3D) {
+      const nodes = this.model.graph.nodes;
+      const c = new THREE.Color();
+      this.yarn.setColors((id) => {
+        c.set(nodes[id].color);
+        if (this.highlightLine >= 0 && nodes[id].line === this.highlightLine) c.lerp(new THREE.Color(1, 0.55, 0.1), 0.65);
+        return c;
+      });
+    }
   }
 
   /** New positions from the solver (same topology). */
@@ -348,6 +371,7 @@ export class CrochetView {
     this.mesh.geometry.computeBoundingBox();
     this.updateMarkers();
     this.updateRidges();
+    if (YARN3D) { const nodes = this.model.graph.nodes; this.yarn.update(pos, this.nrm, (id) => nodes[id].w); }
     const bb = this.mesh.geometry.boundingBox!;
     const s = bb.getSize(new THREE.Vector3());
     this.onSize?.([s.x, s.y, s.z]);
