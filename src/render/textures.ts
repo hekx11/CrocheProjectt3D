@@ -26,6 +26,7 @@ export interface YarnLook {
   sheen: number;
   sheenRoughness: number;
   sheenTint: number; // brightness of the sheen colour (white would wash out the yarn colour)
+  relief: number; // real surface relief (displacement), as a fraction of sc width
   /** Fuzz shells above the surface; count 0 = none. */
   shells: { count: number; length: number; kind: 'none' | 'halo' | 'fuzz' | 'pile'; density: number; opacity: number };
 }
@@ -34,36 +35,36 @@ export const YARN_LOOKS: Record<string, YarnLook> = {
   // crisp, matte, tightly plied, clearly defined stitches
   cotton: {
     plies: 4, twist: 3.2, plyDepth: 0.5, legRadius: 0.21, blur: 1, pile: 0.02,
-    normalStrength: 1.1, cavity: 0.5, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5,
+    normalStrength: 1.1, cavity: 0.5, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5, relief: 0.16,
     shells: { count: 0, length: 0, kind: 'none', density: 0, opacity: 1 },
   },
   // plied, slightly soft, small sheen
   acrylic: {
     plies: 3, twist: 2.4, plyDepth: 0.35, legRadius: 0.2, blur: 1, pile: 0.04,
-    normalStrength: 1.0, cavity: 0.45, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45,
+    normalStrength: 1.0, cavity: 0.45, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45, relief: 0.18,
     shells: { count: 2, length: 0.05, kind: 'fuzz', density: 0.12, opacity: 1 },
   },
   // soft, a little fuzzy, matte with a soft rim
   wool: {
     plies: 2, twist: 1.8, plyDepth: 0.3, legRadius: 0.19, blur: 2, pile: 0.08,
-    normalStrength: 0.9, cavity: 0.4, roughness: 0.95, sheen: 0.4, sheenRoughness: 0.7, sheenTint: 0.4,
+    normalStrength: 0.9, cavity: 0.4, roughness: 0.95, sheen: 0.4, sheenRoughness: 0.7, sheenTint: 0.4, relief: 0.2,
     shells: { count: 4, length: 0.12, kind: 'fuzz', density: 0.35, opacity: 1 },
   },
   // fat, plush, unplied, strong sheen; stitches read as soft puffs
   chenille: {
     plies: 0, twist: 0, plyDepth: 0, legRadius: 0.24, blur: 2, pile: 0.12,
-    normalStrength: 1.0, cavity: 0.7, roughness: 0.85, sheen: 0.6, sheenRoughness: 0.4, sheenTint: 0.35,
+    normalStrength: 1.0, cavity: 0.7, roughness: 0.85, sheen: 0.6, sheenRoughness: 0.4, sheenTint: 0.35, relief: 0.32,
     shells: { count: 6, length: 0.16, kind: 'pile', density: 0.9, opacity: 1 },
   },
   velvet: {
     plies: 0, twist: 0, plyDepth: 0, legRadius: 0.22, blur: 2, pile: 0.06,
-    normalStrength: 1.0, cavity: 0.6, roughness: 0.7, sheen: 0.7, sheenRoughness: 0.3, sheenTint: 0.35,
+    normalStrength: 1.0, cavity: 0.6, roughness: 0.7, sheen: 0.7, sheenRoughness: 0.3, sheenTint: 0.35, relief: 0.28,
     shells: { count: 5, length: 0.12, kind: 'pile', density: 0.95, opacity: 1 },
   },
   // thin core, big airy halo that blurs the stitches
   mohair: {
     plies: 2, twist: 2.0, plyDepth: 0.3, legRadius: 0.13, blur: 3, pile: 0.1,
-    normalStrength: 0.6, cavity: 0.3, roughness: 0.95, sheen: 0.5, sheenRoughness: 0.6, sheenTint: 0.4,
+    normalStrength: 0.6, cavity: 0.3, roughness: 0.95, sheen: 0.5, sheenRoughness: 0.6, sheenTint: 0.4, relief: 0.12,
     shells: { count: 9, length: 0.45, kind: 'halo', density: 1, opacity: 0.9 },
   },
 };
@@ -221,6 +222,8 @@ export interface YarnTextures {
   cavityMap: THREE.Texture;
   /** Hair mask for fuzz shells (value = how far out the hair reaches), or null. */
   hairMap: THREE.Texture | null;
+  /** Smoothed stitch height for real displacement of the tessellated surface (0..1). */
+  reliefMap: THREE.Texture;
 }
 
 const cache = new Map<string, YarnTextures>();
@@ -258,9 +261,34 @@ export function yarnTextures(fiber: string): YarnTextures {
     normalMap: dataTexture(nrm),
     cavityMap: dataTexture(cav),
     hairMap: look.shells.count > 0 ? hairTexture(look, hgt, max) : null,
+    reliefMap: reliefTexture(hgt, max),
   };
   cache.set(key, out);
   return out;
+}
+
+/**
+ * Displacement map: the height field averaged down 4× (vertex shaders sample without mipmaps, so
+ * fine pile noise would otherwise shimmer) on the same tile layout.
+ */
+function reliefTexture(hgt: Float32Array, max: number): THREE.Texture {
+  const D = 4, w = W / D, h = H / D;
+  const data = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let dy = 0; dy < D; dy++) for (let dx = 0; dx < D; dx++) sum += hgt[(y * D + dy) * W + x * D + dx];
+    const v = Math.round(Math.max(0, Math.min(1, sum / (D * D) / (max || 1))) * 255);
+    const i = (y * w + x) * 4;
+    data[i] = data[i + 1] = data[i + 2] = v;
+    data[i + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.repeat.set(1 / TS, 1 / TR);
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /**
