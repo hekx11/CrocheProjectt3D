@@ -34,20 +34,20 @@ export interface YarnLook {
 export const YARN_LOOKS: Record<string, YarnLook> = {
   // crisp, matte, tightly plied, clearly defined stitches
   cotton: {
-    plies: 4, twist: 3.2, plyDepth: 0.5, legRadius: 0.21, blur: 1, pile: 0.02,
-    normalStrength: 1.1, cavity: 0.5, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5, relief: 0.16,
+    plies: 4, twist: 2.2, plyDepth: 0.3, legRadius: 0.21, blur: 1, pile: 0.02,
+    normalStrength: 1.1, cavity: 0.65, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5, relief: 0.26,
     shells: { count: 0, length: 0, kind: 'none', density: 0, opacity: 1 },
   },
   // plied, slightly soft, small sheen
   acrylic: {
-    plies: 3, twist: 2.4, plyDepth: 0.35, legRadius: 0.2, blur: 1, pile: 0.04,
-    normalStrength: 1.0, cavity: 0.45, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45, relief: 0.18,
+    plies: 3, twist: 1.8, plyDepth: 0.22, legRadius: 0.2, blur: 1, pile: 0.04,
+    normalStrength: 1.0, cavity: 0.6, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45, relief: 0.26,
     shells: { count: 2, length: 0.05, kind: 'fuzz', density: 0.12, opacity: 1 },
   },
   // soft, a little fuzzy, matte with a soft rim
   wool: {
     plies: 2, twist: 1.8, plyDepth: 0.3, legRadius: 0.19, blur: 2, pile: 0.08,
-    normalStrength: 0.9, cavity: 0.4, roughness: 0.95, sheen: 0.4, sheenRoughness: 0.7, sheenTint: 0.4, relief: 0.2,
+    normalStrength: 0.9, cavity: 0.55, roughness: 0.95, sheen: 0.4, sheenRoughness: 0.7, sheenTint: 0.4, relief: 0.24,
     shells: { count: 4, length: 0.12, kind: 'fuzz', density: 0.35, opacity: 1 },
   },
   // fat, plush, unplied, strong sheen; stitches read as soft puffs
@@ -112,25 +112,32 @@ function tube(u: number, v: number, ax: number, ay: number, bx: number, by: numb
 
 interface Cell { cu: number; cv: number; scale: number; tilt: number }
 
-/** One sc as two plied legs forming a "V" (point toward the row below) over the previous row's top loops. */
+/**
+ * One sc as seen on the right side: a "V" of two plump, slanted loops of plied yarn meeting at the
+ * bottom, with a small dark gap between the loops and a clear groove to the next row. Each loop is
+ * an elongated dome whose surface carries the ply twist.
+ */
 function vStitch(look: YarnLook, lu: number, lv: number): number {
-  const r = look.legRadius;
-  const segs: [number, number, number, number, number, number][] = [
-    [-0.07, -0.3, -0.25, 0.32, r, 0],
-    [0.07, -0.3, 0.25, 0.32, r, 0],
-    [-0.62, -0.5, 0.62, -0.5, r * 0.8, -0.3],
-  ];
-  // the stitch body behind the legs, so the inside of the V isn't a hole
-  let best = 0.5 * puffStitch(look, lu * 1.1, lv);
-  for (const [ax, ay, bx, by, rr, off] of segs) {
-    const hit = tube(lu, lv, ax, ay, bx, by, rr);
-    if (!hit) continue;
-    let h = hit[0];
+  const half = 0.15 + look.legRadius * 0.35; // loop half-width across
+  const len = 0.62; // loop half-length along (loops reach into the next row, as real ones do)
+  let best = 0.12; // the fabric behind, just visible in the gaps
+  for (const side of [-1, 1]) {
+    // loop centre and slant: tops lean outward, bottoms meet near the middle
+    const cx = side * 0.19, cy = 0;
+    const ang = side * 0.5;
+    const x = lu - cx, y = lv - cy;
+    const along = x * Math.sin(ang) + y * Math.cos(ang);
+    const across = x * Math.cos(ang) - y * Math.sin(ang);
+    const a = along / len, b = across / half;
+    const q2 = a * a + b * b;
+    if (q2 >= 1) continue;
+    let h = Math.pow(1 - q2, 0.5);
     if (look.plies > 0) {
-      const ph = 0.5 - 0.5 * Math.cos(2 * Math.PI * (look.plies * 0.5 * (hit[2] + 1) + look.twist * hit[1]));
-      h *= 1 - look.plyDepth * ph * h;
+      // plies wind diagonally around the loop
+      const ph = 0.5 - 0.5 * Math.cos(2 * Math.PI * (look.plies * 0.5 * (b + 1) + look.twist * 0.6 * a));
+      h *= 1 - look.plyDepth * ph;
     }
-    best = Math.max(best, h + off);
+    best = Math.max(best, h);
   }
   return best;
 }
