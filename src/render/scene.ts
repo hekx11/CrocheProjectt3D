@@ -119,8 +119,7 @@ export class CrochetView {
     this.baseColors = new Float32Array(T * 3);
     const c = new THREE.Color();
     for (let t = 0; t < T; t++) {
-      c.set(nodes[tris[t]].color);
-      c.convertSRGBToLinear();
+      c.set(nodes[tris[t]].color); // Color.set already converts the sRGB hex to linear
       this.baseColors.set([c.r, c.g, c.b], t * 3);
     }
     const sz = model.sizing;

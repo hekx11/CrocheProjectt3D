@@ -33,13 +33,13 @@ export interface YarnLook {
 export const YARN_LOOKS: Record<string, YarnLook> = {
   // crisp, matte, tightly plied, clearly defined stitches
   cotton: {
-    plies: 4, twist: 3.2, plyDepth: 0.5, legRadius: 0.17, blur: 1, pile: 0.02,
+    plies: 4, twist: 3.2, plyDepth: 0.5, legRadius: 0.21, blur: 1, pile: 0.02,
     normalStrength: 1.1, cavity: 0.5, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5,
     shells: { count: 0, length: 0, kind: 'none', density: 0, opacity: 1 },
   },
   // plied, slightly soft, small sheen
   acrylic: {
-    plies: 3, twist: 2.4, plyDepth: 0.35, legRadius: 0.18, blur: 1, pile: 0.04,
+    plies: 3, twist: 2.4, plyDepth: 0.35, legRadius: 0.2, blur: 1, pile: 0.04,
     normalStrength: 1.0, cavity: 0.45, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45,
     shells: { count: 2, length: 0.05, kind: 'fuzz', density: 0.12, opacity: 1 },
   },
@@ -51,14 +51,14 @@ export const YARN_LOOKS: Record<string, YarnLook> = {
   },
   // fat, plush, unplied, strong sheen; stitches read as soft puffs
   chenille: {
-    plies: 0, twist: 0, plyDepth: 0, legRadius: 0.23, blur: 3, pile: 0.1,
-    normalStrength: 1.2, cavity: 0.65, roughness: 0.7, sheen: 0.7, sheenRoughness: 0.35, sheenTint: 0.3,
-    shells: { count: 3, length: 0.06, kind: 'pile', density: 0.35, opacity: 1 },
+    plies: 0, twist: 0, plyDepth: 0, legRadius: 0.24, blur: 2, pile: 0.12,
+    normalStrength: 1.0, cavity: 0.7, roughness: 0.85, sheen: 0.6, sheenRoughness: 0.4, sheenTint: 0.35,
+    shells: { count: 6, length: 0.16, kind: 'pile', density: 0.9, opacity: 1 },
   },
   velvet: {
     plies: 0, twist: 0, plyDepth: 0, legRadius: 0.22, blur: 2, pile: 0.06,
-    normalStrength: 1.2, cavity: 0.6, roughness: 0.6, sheen: 0.7, sheenRoughness: 0.3, sheenTint: 0.3,
-    shells: { count: 2, length: 0.035, kind: 'pile', density: 0.4, opacity: 1 },
+    normalStrength: 1.0, cavity: 0.6, roughness: 0.7, sheen: 0.7, sheenRoughness: 0.3, sheenTint: 0.35,
+    shells: { count: 5, length: 0.12, kind: 'pile', density: 0.95, opacity: 1 },
   },
   // thin core, big airy halo that blurs the stitches
   mohair: {
@@ -72,7 +72,15 @@ export function yarnLook(fiber: string): YarnLook {
   return YARN_LOOKS[fiber] ?? YARN_LOOKS.acrylic;
 }
 
-const S = 128; // stitch tile resolution
+/**
+ * The texture tile covers TS stitches × TR rows so the stitches can vary a little (no wallpaper look)
+ * and alternate rows sit half a stitch over, the way sc rounds stack in real fabric. TS = 6 because
+ * most round counts are multiples of 6, so the tile wraps around a round without a seam.
+ */
+export const TS = 6;
+export const TR = 2;
+const P = 80; // pixels per stitch / per row
+const W = TS * P, H = TR * P;
 
 /** Small deterministic PRNG so textures look the same on every load. */
 function rng(seed: number) {
@@ -96,72 +104,112 @@ function tube(u: number, v: number, ax: number, ay: number, bx: number, by: numb
   const d = Math.hypot(ex, ey);
   if (d >= r) return null;
   const len = Math.sqrt(len2);
-  // signed distance across the tube (which side of the centre line)
   const side = (ex * -dy + ey * dx) / len;
   const q = d / r;
   return [Math.pow(Math.cos((Math.PI / 2) * q), 0.7), t * len, side / r];
 }
 
-/** Height field for one sc tile with the given yarn look. Values ≈ 0..1. */
-export function stitchHeight(look: YarnLook): Float32Array {
-  const hgt = new Float32Array(S * S);
+interface Cell { cu: number; cv: number; scale: number; tilt: number }
+
+/** One sc as two plied legs forming a "V" (point toward the row below) over the previous row's top loops. */
+function vStitch(look: YarnLook, lu: number, lv: number): number {
   const r = look.legRadius;
-  // segments: [ax, ay, bx, by, radius, depth offset]. Two legs of the "V" plus the top loops of the
-  // row below (a horizontal bar at the bottom of the tile, partly hidden behind the legs).
   const segs: [number, number, number, number, number, number][] = [
-    [0.5 - 0.07, 0.16, 0.5 - 0.27, 0.86, r, 0],
-    [0.5 + 0.07, 0.16, 0.5 + 0.27, 0.86, r, 0],
-    [-0.1, 0.0, 1.1, 0.0, r * 0.8, -0.3],
+    [-0.07, -0.3, -0.25, 0.32, r, 0],
+    [0.07, -0.3, 0.25, 0.32, r, 0],
+    [-0.62, -0.5, 0.62, -0.5, r * 0.8, -0.3],
   ];
-  const plyPhase = (along: number, across: number) =>
-    0.5 - 0.5 * Math.cos(2 * Math.PI * (look.plies * 0.5 * (across + 1) + look.twist * along));
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      let best = 0;
-      // sample periodic neighbours so the tile wraps cleanly
-      for (const ox of [-1, 0, 1]) {
-        for (const oy of [-1, 0, 1]) {
-          const u = x / S - ox, v = y / S - oy;
-          for (const [ax, ay, bx, by, rr, off] of segs) {
-            const hit = tube(u, v, ax, ay, bx, by, rr);
-            if (!hit) continue;
-            let h = hit[0];
-            if (look.plies > 0) h *= 1 - look.plyDepth * plyPhase(hit[1], hit[2]) * h;
-            h += off;
-            if (h > best) best = h;
-          }
-        }
-      }
-      hgt[y * S + x] = Math.max(0, best);
+  // the stitch body behind the legs, so the inside of the V isn't a hole
+  let best = 0.5 * puffStitch(look, lu * 1.1, lv);
+  for (const [ax, ay, bx, by, rr, off] of segs) {
+    const hit = tube(lu, lv, ax, ay, bx, by, rr);
+    if (!hit) continue;
+    let h = hit[0];
+    if (look.plies > 0) {
+      const ph = 0.5 - 0.5 * Math.cos(2 * Math.PI * (look.plies * 0.5 * (hit[2] + 1) + look.twist * hit[1]));
+      h *= 1 - look.plyDepth * ph * h;
+    }
+    best = Math.max(best, h + off);
+  }
+  return best;
+}
+
+/**
+ * One sc in a thick unplied yarn (chenille, velvet): the two legs merge into one plump rounded
+ * "pebble", with only a soft dent where the V splits at the top.
+ */
+function puffStitch(look: YarnLook, lu: number, lv: number): number {
+  const rx = 0.36 + look.legRadius, ry = 0.4 + look.legRadius;
+  const q2 = (lu / rx) ** 2 + (lv / ry) ** 2;
+  if (q2 >= 1) return 0;
+  let h = Math.pow(1 - q2, 0.45);
+  // the V: a soft groove from the top edge toward the middle
+  const top = Math.max(0, Math.min(1, (lv + 0.05) / 0.45));
+  h *= 1 - 0.32 * Math.exp(-((lu / 0.07) ** 2)) * top;
+  return h;
+}
+
+/** Height field for one tile (TS stitches × TR rows) with the given yarn look. Values ≈ 0..1. */
+export function stitchHeight(look: YarnLook): Float32Array {
+  const rand = rng(99 + Math.round(look.legRadius * 1000));
+  const cells: Cell[] = [];
+  for (let j = 0; j < TR; j++) {
+    for (let i = 0; i < TS; i++) {
+      cells.push({
+        cu: i + 0.5 + (j % 2) * 0.5 + (rand() - 0.5) * 0.14,
+        cv: j + 0.5 + (rand() - 0.5) * 0.06,
+        scale: 1 + (rand() - 0.5) * 0.16,
+        // spiral rounds make the stitches lean a little
+        tilt: 0.1 + (rand() - 0.5) * 0.25,
+      });
     }
   }
-  // fibre noise / pile
+  const shape = look.plies > 0 ? vStitch : puffStitch;
+  const hgt = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = (x + 0.5) / P, v = (y + 0.5) / P;
+      let best = 0;
+      for (const c of cells) {
+        // nearest periodic copy of this cell
+        let du = u - c.cu, dv = v - c.cv;
+        du -= Math.round(du / TS) * TS;
+        dv -= Math.round(dv / TR) * TR;
+        if (Math.abs(du) > 1 || Math.abs(dv) > 1) continue;
+        const ct = Math.cos(c.tilt), st = Math.sin(c.tilt);
+        const lu = (du * ct - dv * st) / c.scale, lv = (du * st + dv * ct) / c.scale;
+        const h = shape(look, lu, lv);
+        if (h > best) best = h;
+      }
+      hgt[y * W + x] = Math.max(0, best);
+    }
+  }
   if (look.pile > 0) {
-    const rand = rng(7 + Math.round(look.legRadius * 1000));
     for (let i = 0; i < hgt.length; i++) hgt[i] += (rand() - 0.5) * look.pile * (0.3 + hgt[i]);
   }
-  // fuzzy yarns: soften the stitch shape (wrapping box blur)
   for (let pass = 0; pass < look.blur; pass++) blur(hgt);
   return hgt;
 }
 
 function blur(h: Float32Array) {
   const tmp = new Float32Array(h.length);
-  const at = (x: number, y: number) => h[((y + S) % S) * S + ((x + S) % S)];
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    tmp[y * S + x] = (at(x - 1, y) + at(x + 1, y) + at(x, y - 1) + at(x, y + 1) + 2 * at(x, y)) / 6;
+  const at = (x: number, y: number) => h[((y + H) % H) * W + ((x + W) % W)];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    tmp[y * W + x] = (at(x - 1, y) + at(x + 1, y) + at(x, y - 1) + at(x, y + 1) + 2 * at(x, y)) / 6;
   }
   h.set(tmp);
 }
 
-function dataTexture(data: Uint8Array, size: number, colorSpace: THREE.ColorSpace = THREE.NoColorSpace): THREE.DataTexture {
-  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+function dataTexture(data: Uint8Array, colorSpace: THREE.ColorSpace = THREE.NoColorSpace): THREE.DataTexture {
+  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
   tex.anisotropy = 4;
   tex.colorSpace = colorSpace;
+  // UVs count stitches and rows; one tile spans TS stitches × TR rows
+  tex.repeat.set(1 / TS, 1 / TR);
   tex.needsUpdate = true;
   return tex;
 }
@@ -185,17 +233,17 @@ export function yarnTextures(fiber: string): YarnTextures {
   const hgt = stitchHeight(look);
   let max = 0;
   for (const v of hgt) max = Math.max(max, v);
-  const at = (x: number, y: number) => hgt[((y + S) % S) * S + ((x + S) % S)] / (max || 1);
+  const at = (x: number, y: number) => hgt[((y + H) % H) * W + ((x + W) % W)] / (max || 1);
 
-  const nrm = new Uint8Array(S * S * 4);
-  const cav = new Uint8Array(S * S * 4);
-  const k = 2.6 * look.normalStrength;
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
+  const nrm = new Uint8Array(W * H * 4);
+  const cav = new Uint8Array(W * H * 4);
+  const k = (P / 64) * 2.6 * look.normalStrength;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
       const dx = (at(x + 1, y) - at(x - 1, y)) * k;
       const dy = (at(x, y + 1) - at(x, y - 1)) * k;
       const l = Math.hypot(dx, dy, 1);
-      const i = (y * S + x) * 4;
+      const i = (y * W + x) * 4;
       nrm[i] = ((-dx / l) * 0.5 + 0.5) * 255;
       nrm[i + 1] = ((-dy / l) * 0.5 + 0.5) * 255;
       nrm[i + 2] = ((1 / l) * 0.5 + 0.5) * 255;
@@ -207,53 +255,54 @@ export function yarnTextures(fiber: string): YarnTextures {
   }
   const out: YarnTextures = {
     look,
-    normalMap: dataTexture(nrm, S),
-    cavityMap: dataTexture(cav, S),
-    hairMap: look.shells.count > 0 ? hairTexture(look) : null,
+    normalMap: dataTexture(nrm),
+    cavityMap: dataTexture(cav),
+    hairMap: look.shells.count > 0 ? hairTexture(look, hgt, max) : null,
   };
   cache.set(key, out);
   return out;
 }
 
-/** Hair mask: halo = long crossing strands, fuzz = short sparse strands, pile = dense short tufts. */
-function hairTexture(look: YarnLook): THREE.Texture {
-  const H = 256;
-  const val = new Float32Array(H * H);
+/**
+ * Hair mask on the same tile as the stitches. pile = dense short tufts that follow the stitch bumps
+ * (the shells then act like real relief: crevices stay empty and dark); fuzz = short sparse strands;
+ * halo = long crossing strands that ignore the stitch shape.
+ */
+function hairTexture(look: YarnLook, hgt: Float32Array, max: number): THREE.Texture {
+  const val = new Float32Array(W * H);
   const rand = rng(1234 + look.shells.count);
   const { kind, density } = look.shells;
+  const hAt = (i: number) => Math.max(0, hgt[i] / (max || 1));
   if (kind === 'pile') {
     for (let i = 0; i < val.length; i++) {
-      if (rand() < density) val[i] = 0.25 + 0.75 * Math.pow(rand(), 0.6);
+      if (rand() < density) val[i] = Math.pow(hAt(i), 1.3) * (0.75 + 0.25 * rand());
     }
   } else {
-    const strands = Math.round((kind === 'halo' ? 900 : 700) * density);
+    const strands = Math.round((kind === 'halo' ? 2600 : 1800) * density);
     for (let s = 0; s < strands; s++) {
-      let x = rand() * H, y = rand() * H;
+      let x = rand() * W, y = rand() * H;
       const a = rand() * Math.PI * 2;
-      const len = (kind === 'halo' ? 18 + rand() * 50 : 4 + rand() * 12);
-      const reach = 0.2 + 0.8 * rand(); // how far above the surface this hair gets
+      const len = kind === 'halo' ? 14 + rand() * 40 : 3 + rand() * 9;
+      const root = hAt(Math.floor(y) * W + Math.floor(x));
+      const reach = (0.2 + 0.8 * rand()) * (kind === 'fuzz' ? 0.4 + 0.6 * root : 1);
       let dx = Math.cos(a), dy = Math.sin(a);
       for (let t = 0; t < len; t++) {
-        // reach fades toward the hair's tip, so shells thin out with height
         const v = reach * (1 - 0.6 * (t / len));
-        const ix = ((Math.round(x) % H) + H) % H, iy = ((Math.round(y) % H) + H) % H;
-        val[iy * H + ix] = Math.max(val[iy * H + ix], v);
-        // gentle curl
+        const ix = ((Math.round(x) % W) + W) % W, iy = ((Math.round(y) % H) + H) % H;
+        val[iy * W + ix] = Math.max(val[iy * W + ix], v);
         const turn = (rand() - 0.5) * 0.25;
         [dx, dy] = [dx * Math.cos(turn) - dy * Math.sin(turn), dx * Math.sin(turn) + dy * Math.cos(turn)];
         x += dx; y += dy;
       }
     }
   }
-  const data = new Uint8Array(H * H * 4);
+  const data = new Uint8Array(W * H * 4);
   for (let i = 0; i < val.length; i++) {
-    const b = Math.round(val[i] * 255);
+    const b = Math.round(Math.min(1, val[i]) * 255);
     data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = b;
     data[i * 4 + 3] = 255;
   }
-  const tex = dataTexture(data, H);
-  // hairs are finer than a stitch: repeat the mask a few times per stitch
-  tex.repeat.set(kind === 'halo' ? 1.5 : 2.5, kind === 'halo' ? 1.5 : 2.5);
+  const tex = dataTexture(data);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
