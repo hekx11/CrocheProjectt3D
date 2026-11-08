@@ -173,6 +173,8 @@ export class Yarn3D {
     const nodes = g.nodes;
     const parent = new Int32Array(nodes.length).fill(-1);
     for (const e of g.edges) if (e.kind === 'into' && parent[e.b] < 0) parent[e.b] = e.a;
+    // a first round's stitches stand on the ring centre (16 dc in a ring reach right across)
+    for (const e of g.edges) if (e.kind === 'ring' && parent[e.b] < 0) parent[e.b] = e.a;
     const insts: Inst[][] = [[], [], []];
     for (const pi of g.instances) {
       for (const row of pi.rows) {

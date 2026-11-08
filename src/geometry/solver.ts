@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -183,6 +183,11 @@ export class Solver {
           const i = id * 3;
           p[i] += this.nrm[i] * f; p[i + 1] += this.nrm[i + 1] * f; p[i + 2] += this.nrm[i + 2] * f;
         }
+      }
+      // loose fabric hanging from a join (a skirt) drapes down instead of standing out
+      if (pi.drape) {
+        const g = pi.drape * pi.hAvg;
+        for (const id of pi.nodeIds) if (!(fixed && fixed[id])) p[id * 3 + 1] -= g;
       }
       if (pi.shape) this.shapeBy(pi);
       if (pi.flat) {

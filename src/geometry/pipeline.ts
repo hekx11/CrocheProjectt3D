@@ -1,7 +1,7 @@
 import type { Pattern } from '../model/types';
 import { buildGraph, type StitchGraph } from '../graph/build';
 import { computeSizing, type Sizing, type UserMaterials } from './sizing';
-import { seed, type MarkerAnchor } from './seed';
+import { isUpright, seed, type MarkerAnchor } from './seed';
 import { triangulate } from './mesh';
 import type { SolverInput } from './solver';
 
@@ -80,6 +80,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     return {
       nodeIds: pi.nodeIds,
       stuffed: pi.stuffed,
+      drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : 0,
       closed: pi.piece.finish === 'closed',
       shape: pi.piece.shape,
       flat: pi.flat,

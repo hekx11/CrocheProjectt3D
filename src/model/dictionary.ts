@@ -54,6 +54,11 @@ export const COLORS: Record<string, string> = {
   brown: '#7a4b2a', tan: '#c49a6c', beige: '#d9c3a0', red: '#c0392b', pink: '#f2a7c3', orange: '#e67e22',
   yellow: '#f4d03f', green: '#4f9d58', mint: '#a8e6cf', blue: '#3b6fb6', 'light blue': '#9cc7ec', navy: '#22315a',
   purple: '#8e5bb5', lilac: '#c8a2d8', gold: '#d4a62a', silver: '#c0c0c0', peach: '#f6c1a1', coral: '#f08070',
+  skin: '#f3d2b5', 'skin color': '#f3d2b5', 'skin colour': '#f3d2b5', flesh: '#f3d2b5', nude: '#ecc9a8',
+  camel: '#c8955a', mustard: '#d9a62a', 'dark yellow': '#e0a92a', 'pale yellow': '#f6e08a', 'light yellow': '#f6e08a',
+  'dark blue': '#273f73', midnight: '#232a4a', 'light gray': '#c9c9c9', 'light grey': '#c9c9c9', 'dark gray': '#5b5f63', 'dark grey': '#5b5f63',
+  'light brown': '#b5865a', 'dark brown': '#5a3518', 'light pink': '#f7c6d6', 'dark green': '#2f6b3a', 'light green': '#a6d38a',
+  burgundy: '#7b1f2e', teal: '#2a8c8c', turquoise: '#3fbfbf', khaki: '#b8a77a', charcoal: '#3a3a3a',
 };
 
 export const DEFAULT_YARN_COLOR = '#e8a87c';

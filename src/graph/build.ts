@@ -43,6 +43,11 @@ export interface PieceInstance {
   centre?: number;
   stuffed: number; // pressure 0..1
   flat: boolean;
+  /** For a piece worked into other pieces (legs joined into a body, a skirt from the body's front
+   *  loops): the stitches its first row works into, in order, for meshing the join. */
+  baseRow?: GRow;
+  /** Chains made between joined parts (the "ch 2" between two legs); they belong to no row. */
+  baseChains?: number[];
 }
 
 export interface StitchGraph {
@@ -78,7 +83,30 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       let prevWork: number[] = []; // node ids in the order the next row works into them
       let ringMode = false;
       let lastYarnNode = -1;
-      if (piece.start.kind === 'chain' && !piece.start.ring) {
+      if (piece.base) {
+        // worked into other pieces: their rows (already built) and any chains between them
+        let chain: number[] = [];
+        for (const part of piece.base) {
+          if (part.kind === 'ch') {
+            if (part.back) { prevWork.push(...[...chain].reverse()); continue; }
+            chain = [];
+            for (let i = 0; i < part.n; i++) {
+              const id = add({ key: `${piece.name}:${inst}:base:${i}`, piece: piece.id, inst, row: 0, idx: i, u: i, type: 'ch', loop: 'both', w: sz.w, h: sz.h * 0.5, color: firstColor, line: piece.rows[0]?.line ?? -1, virtual: false });
+              if (lastYarnNode >= 0) edges.push({ a: lastYarnNode, b: id, kind: 'yarn', rest: sz.w });
+              lastYarnNode = id;
+              chain.push(id);
+              (pi.baseChains ??= []).push(id);
+            }
+            prevWork.push(...chain);
+            continue;
+          }
+          const src = instances.find((q) => q.piece.id === part.piece && q.inst === Math.min(part.inst, q.piece.quantity - 1) && (part.inst < q.piece.quantity || q.inst === inst));
+          const r = src?.rows.find((q) => q.row === part.row);
+          if (r) prevWork.push(...(src!.piece.construction === 'rows' ? [...r.nodes].reverse() : r.nodes));
+        }
+        prevRow = { piece: piece.id, inst, row: 0, nodes: prevWork, anchors: prevWork.map(() => -1), closed: true, loop: 'both', line: -1 };
+        pi.baseRow = prevRow;
+      } else if (piece.start.kind === 'chain' && !piece.start.ring) {
         const row: GRow = { piece: piece.id, inst, row: 0, nodes: [], anchors: [], closed: false, loop: 'both', line: piece.rows[0]?.line ?? -1 };
         // A foundation chain is as wide as the stitches worked into it; a narrower chain
         // gathers the first rows and the solver resolves the conflict by rippling the fabric.
@@ -98,6 +126,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       }
 
       for (const r of piece.rows) {
+        if (r.skipGeometry) continue;
         const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode);
         const color = yarnColor.get(r.yarnId) ?? firstColor;
         const row: GRow = { piece: piece.id, inst, row: r.index, nodes: [], anchors: [], closed: piece.construction !== 'rows', loop: 'both', line: r.line };
@@ -108,10 +137,12 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         ex.stitches.forEach((s, i) => {
           if (s.loop !== 'both') loops++;
           const wf = widthFactor(s.type, s.tension);
-          const hf = s.type === 'ch' ? 0.5 : heightFactor(s.type, s.tension, s.loop);
+          // a carried stitch is the stitch below passed on: its colour, almost no height
+          const below = s.carry && s.targets.length ? nodes[prevWork[s.targets[0]]] : undefined;
+          const hf = below ? 0.15 : s.type === 'ch' ? 0.5 : heightFactor(s.type, s.tension, s.loop);
           const id = add({
             key: `${piece.name}:${inst}:${r.index}:${i}:${ex.stitches.length}`, piece: piece.id, inst, row: r.index, idx: i, u: piece.construction === 'rows' && r.index % 2 === 1 ? ex.stitches.length - 1 - i : i,
-            type: s.type, loop: s.loop, w: sz.w * wf, h: sz.h * hf, color, line: r.line, virtual: false,
+            type: s.type, loop: s.loop, w: below ? below.w : sz.w * wf, h: sz.h * hf, color: below ? below.color : color, line: r.line, virtual: false,
           });
           if (lastYarnNode >= 0) edges.push({ a: lastYarnNode, b: id, kind: 'yarn', rest: sz.w * wf });
           lastYarnNode = id;

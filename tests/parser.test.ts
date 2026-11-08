@@ -181,3 +181,121 @@ Fasten off.
     expect(parsePattern('Test\nHook: 5 mm, plush chenille yarn\nRnd 1: 6 sc in MR (6)\n').materials.fiber).toBe('chenille');
   });
 });
+
+describe('tested doll and coaster wordings', () => {
+  it('joins two legs into a body, grows a skirt from front loops, and reads "in all N st" / "repeat N times"', () => {
+    const p = parsePattern(`Doll
+LEGS
+Make 2, start in white yarn:
+Rnd 1: start 5 sc in a magic ring [5]
+Rnd 2: inc in all 5 st [10]
+Rnd 3 – 4: change to skin color yarn, sc in all 10 st [10]
+Fasten off on the first leg. Don't fasten off on the second leg.
+BODY
+In white yarn:
+Rnd 5: ch 2, sc in the marked stitch on the first leg, sc in next 9 st on the first leg, sc in next 2 ch, sc in next 10 st on the second leg, sc in the opposite side of the next 2 ch [24]
+Rnd 6: (sc in next 3 st, inc in next st) repeat 6 times [30]
+Stuff the legs and the body firmly with fiberfill.
+Rnd 7: BLO sc in all 30 st [30]
+Rnd 8: (sc in next 3 st, dec) repeat 6 times [24]
+Rnd 9: (sc in next 2 st, dec) repeat 6 times [18]
+Rnd 10: dec 9 times [9]
+Fasten off.
+SKIRT
+In white yarn:
+Pull up a loop of white yarn in one of the leftover front loops of round 6 of the body.
+Rnd 1: FLO sc in all 30 st [30]
+Rnd 2: (sc in next 2 st, inc in next st) repeat 10 times [40]
+Fasten off and weave in the yarn end.
+`);
+    expect(noWarnings(p)).toEqual([]);
+    expect(p.pieces.map((q) => [q.name, q.quantity])).toEqual([['Legs', 2], ['Body', 1], ['Skirt', 1]]);
+    expect(p.pieces[0].stuffing).toBe('firm');
+    expect(p.pieces[1].base?.map((b) => (b.kind === 'ch' ? `ch${b.n}${b.back ? 'b' : ''}` : `${b.piece}:${b.inst}:${b.row}`))).toEqual(['p1:0:4', 'ch2', 'p1:1:4', 'ch2b']);
+    expect(p.pieces[1].rows.map((r) => r.computedCount)).toEqual([24, 30, 30, 24, 18, 9]);
+    // "round 6" has 30 stitches left in front loops (round 7 is worked in back loops)
+    expect(p.pieces[2].base).toEqual([{ kind: 'row', piece: 'p2', inst: 0, row: 2, loop: 'FLO' }]);
+    expect(p.pieces[0].rows.map((r) => r.yarnId)).toEqual(['white', 'white', 'skin color', 'skin color']);
+  });
+
+  it('reads a coaster with a part round, re-attached colours, star repeats and "(-) all in one stitch"', () => {
+    const p = parsePattern(`Moon
+(-) All in one stitch
+Start by making a magic ring with light blue.
+R1: Make 16 dc’s and sl st to first st to join. Fasten off (16)
+Attach Pale yellow or camel yarn where you fastened off.
+R2: Ch 1, 1 sc in the next st. 1 hdc in each of the next 2 sts, (1 hdc, 1 dc), 2 dc’s in each of the next 2 sts, (2 hdc), 1 hdc, 1 sc, sl st to the next st to join and fasten off. (20 sts)
+Attach light blue or Aster where you fastened off.
+R3: *Inc, 1 sc in each of the next 3 sts* repeat around. Sl st to first sc to join. ( 25 sts)
+R4: Ch 1 (does not count as a st), *Inc, 1 sc in each of the next 4 sts* Repeat around. Sl st to first sc to join. (30 sts)
+Attach Gold or Dark yellow where you fastened off.
+R5: *Ch 1, sl st to the next st* Repeat around ensuring to keep your sl sts loose. (30 sc and 30 ch 1's)
+Fasten off and weave in the ends.
+`);
+    expect(noWarnings(p)).toEqual([]);
+    expect(p.pieces).toHaveLength(1);
+    expect(p.pieces[0].rows.map((r) => r.computedCount)).toEqual([16, 20, 25, 30, 60]);
+    expect(p.pieces[0].rows.map((r) => r.yarnId)).toEqual(['light blue', 'pale yellow', 'light blue', 'light blue', 'gold']);
+    expect(p.seams).toEqual([]);
+  });
+
+  it('sews named pieces to named hosts, wraps a strip round the shoulders, and skips "sew it closed"', () => {
+    const p = parsePattern(`Doll
+BODY
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (sc in next st, inc in next st) repeat 6 times [18]
+Rnd 4 – 8: sc in all 18 st [18]
+Rnd 9: (sc in next st, dec) repeat 6 times [12]
+Rnd 10: dec 6 times [6]
+Fasten off.
+ARMS
+Make 2, in skin color yarn:
+Rnd 1: start 6 sc in a magic ring [6]
+Rnd 2 – 5: sc in all 6 st [6]
+Fasten off. Flatten the arm and sew it closed. Sew the arms to both sides of the body, over rounds 4 and 5.
+COLLAR
+Ch 13. Crochet in rows.
+Rnd 1: start in second ch from hook, slst in next 2 ch, sc in next 8 ch, slst in next 2 ch [12]
+Fasten off. Wrap the collar around the shoulders and sew the ends together at the front.
+BUN
+Rnd 1: start 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Fasten off.
+ASSEMBLY
+Place the bun to the top of the body, stuff it lightly and sew it on. Glue a stick to the middle of the body.
+`);
+    expect(noWarnings(p)).toEqual([]);
+    expect(p.seams.map((s) => [s.piece, s.host, s.hint, s.rowA, s.rowB])).toEqual([
+      ['p2', 'p1', 'side', 4, 5], ['p3', 'p1', 'wrap', undefined, undefined], ['p4', 'p1', 'top', undefined, undefined],
+    ]);
+    expect(p.pieces[2].rows[0].computedCount).toBe(12);
+  });
+});
+
+describe('legs joined by a note before the body', () => {
+  it('reads "Leg 2: Ch 6, insert hook into leg 1", "With pink:" and F/O', () => {
+    const p = parsePattern(`Toy
+Stuff firmly as your work progresses.
+Legs (make 2)
+With white:
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Leg 1: F/O. Hide tail.
+Leg 2: Ch 3, insert hook into leg 1: 1 sc.
+Continue working around both legs and the chain.
+Body
+Round 1 = 30 sc (30)
+Round 2 = 30 sc (30)
+F/O. Leave long tail for sewing.
+Nose
+With pink:
+Round 1 = 6 sc in magic ring (6)
+F/O. Leave long tail for sewing.
+`);
+    expect(noWarnings(p)).toEqual([]);
+    expect(p.pieces[1].base?.map((b) => b.kind)).toEqual(['row', 'ch', 'row', 'ch']);
+    expect(p.pieces[1].stuffing).toBe('firm');
+    expect(p.pieces[2].rows[0].yarnId).toBe('pink');
+  });
+});

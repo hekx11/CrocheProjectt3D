@@ -35,11 +35,14 @@ export function seed(g: StitchGraph, p: Pattern, w: number): Seeded {
     if (pi.piece.construction === 'rows') seedRows(g, pi, pos);
     else seedRounds(g, pi, pos, angle);
     centre(pi, pos);
+    // a body worked up from joined legs grows upward: turn it over (about z, so the front stays front)
+    if (isUpright(pi)) for (const id of pi.nodeIds) { pos[id * 3] = -pos[id * 3]; pos[id * 3 + 1] = -pos[id * 3 + 1]; angle[id] = Math.PI - angle[id]; }
   }
-  const markers = placeMarkers(g, p, angle);
   const planeNormals = new Map<PieceInstance, V>();
   for (const pi of g.instances) planeNormals.set(pi, pi.piece.construction === 'rows' ? [0, 0, 1] : [0, 1, 0]);
   const seamEdges = placePieces(g, p, pos, angle, w, planeNormals);
+  // after placement: a body turned to stand on its legs has turned its angles with it
+  const markers = placeMarkers(g, p, angle);
   return { pos, angle, markers, seamEdges, planeNormals };
 }
 
@@ -111,6 +114,11 @@ function seedRows(g: StitchGraph, pi: PieceInstance, pos: Float32Array) {
     row.nodes.forEach((id, j) => pos.set([xs[j], y, 0], id * 3));
     prevX = xs;
   }
+}
+
+/** A piece started from two or more joined parts (legs) is worked bottom-up. */
+export function isUpright(pi: PieceInstance): boolean {
+  return (pi.piece.base?.filter((b) => b.kind === 'row').length ?? 0) >= 2;
 }
 
 function centre(pi: PieceInstance, pos: Float32Array) {
@@ -201,13 +209,24 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
   for (const seam of p.seams) {
     if (seam.hint !== 'lid') continue;
     for (const host of byPiece(seam.host)) {
+      if (isUpright(host)) continue; // worked up from the legs: its opening already faces up
       const c = centroid(pos, host.nodeIds);
       for (const id of host.nodeIds) { pos[id * 3 + 1] = 2 * c[1] - pos[id * 3 + 1]; pos[id * 3 + 2] = 2 * c[2] - pos[id * 3 + 2]; }
     }
   }
+  const groups = new Map<PieceInstance, PieceInstance>();
+  const find = (a: PieceInstance): PieceInstance => { let r = a; while (groups.get(r) && groups.get(r) !== r) r = groups.get(r)!; return r; };
+  const union = (a: PieceInstance, b: PieceInstance) => { const ra = find(a), rb = find(b); if (ra !== rb) groups.set(rb, ra); };
+  const attachedInst = new Set<PieceInstance>();
+  for (const pi of g.instances) {
+    if (!pi.baseRow || !pi.piece.base) continue;
+    for (const moved of placeBase(g, pi, pos, angle, w)) { attachedInst.add(moved); placed.add(moved); }
+    for (const part of pi.piece.base) if (part.kind === 'row') for (const q of byPiece(part.piece)) if (q.inst === part.inst || q.piece.quantity === 1) union(pi, q);
+  }
   for (const seam of p.seams) {
     const host = byPiece(seam.host)[0];
     if (!host) continue;
+    for (const pi of byPiece(seam.piece)) union(host, pi);
     placed.add(host);
     const insts = byPiece(seam.piece);
     insts.forEach((pi, k) => {
@@ -216,11 +235,15 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
       placed.add(pi);
     });
   }
-  // lay out everything not attached side by side along x
+  // lay out each group of joined pieces side by side along x
   let x = 0;
-  const roots = g.instances.filter((pi) => !p.seams.some((s) => s.piece === pi.piece.id));
-  for (const pi of roots) {
-    const ids = attachedClosure(g, p, pi);
+  const comps = new Map<PieceInstance, number[]>();
+  for (const pi of g.instances) {
+    const r = find(pi);
+    if (!comps.has(r)) comps.set(r, []);
+    comps.get(r)!.push(...pi.nodeIds);
+  }
+  for (const ids of comps.values()) {
     let minx = Infinity, maxx = -Infinity;
     for (const id of ids) { minx = Math.min(minx, pos[id * 3]); maxx = Math.max(maxx, pos[id * 3]); }
     if (!isFinite(minx)) continue;
@@ -235,11 +258,79 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
   return seamEdges;
 }
 
-function attachedClosure(g: StitchGraph, p: Pattern, root: PieceInstance): number[] {
-  const ids = [...root.nodeIds];
-  const attached = p.seams.filter((s) => s.host === root.piece.id).map((s) => s.piece);
-  for (const pid of new Set(attached)) for (const pi of g.instances.filter((i) => i.piece.id === pid)) ids.push(...pi.nodeIds);
-  return ids;
+/**
+ * A piece worked into other pieces. Legs joined into a body hang under it, each under the stitches
+ * of the body's first round that went into it; a skirt worked into a round of the body is moved
+ * onto that round, growing toward the body's start. Returns the instances it moved.
+ */
+function placeBase(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle: Float32Array, w: number): PieceInstance[] {
+  const base = pi.baseRow!;
+  const first = pi.rows[0];
+  if (!first || !base.nodes.length) return [];
+  const owner = new Map<number, PieceInstance>();
+  for (const q of g.instances) if (q !== pi) for (const id of q.nodeIds) owner.set(id, q);
+  const parts = [...new Set(base.nodes.map((id) => owner.get(id)).filter((q): q is PieceInstance => !!q))];
+  const moved: PieceInstance[] = [];
+  const legs = parts.filter((q) => {
+    const last = q.rows[q.rows.length - 1]?.nodes ?? [];
+    return last.length && base.nodes.includes(last[0]);
+  });
+  if (legs.length >= 2 || (legs.length === 1 && parts.length === 1 && isUpright(pi))) {
+    const A = centroid(pos, first.nodes);
+    const down = norm(sub(A, centroid(pos, pi.rows[1]?.nodes ?? first.nodes))); // away from the body
+    const R = first.nodes.reduce((a, id) => a + g.nodes[id].w, 0) / TAU;
+    for (const leg of legs) {
+      const rim = leg.rows[leg.rows.length - 1].nodes;
+      const onIt = first.nodes.filter((_, j) => { const a = first.anchors[j]; return a >= 0 && rim.includes(base.nodes[a]); });
+      const Ck = centroid(pos, onIt.length ? onIt : first.nodes);
+      const side = sub(Ck, A);
+      const sideH = sub(side, mul(down, dot(side, down)));
+      const r = rim.reduce((a, id) => a + g.nodes[id].w, 0) / TAU;
+      const at = add(add(A, mul(norm(sideH), Math.max(0, R - r * 0.9))), mul(down, (g.nodes[rim[0]].h || w) * 0.8));
+      const eC = centroid(pos, rim), lC = centroid(pos, leg.nodeIds);
+      const rot = rotator(norm(sub(eC, lC)), mul(down, -1));
+      for (const id of leg.nodeIds) pos.set(add(at, rot(sub(get(pos, id), eC))), id * 3);
+      moved.push(leg);
+    }
+    // the chains between the legs sit under the stitches worked into them
+    for (const id of pi.baseChains ?? []) {
+      const k = base.nodes.indexOf(id);
+      const over = first.nodes.filter((_, j) => first.anchors[j] === k);
+      pos.set(add(over.length ? centroid(pos, over) : A, mul(down, w * 0.6)), id * 3);
+    }
+    // stand on the legs side by side (left and right), not one behind the other
+    if (legs.length === 2) {
+      const d = sub(centroid(pos, legs[1].nodeIds), centroid(pos, legs[0].nodeIds));
+      const phi = -Math.atan2(d[2], d[0]);
+      const c = Math.cos(phi), sn = Math.sin(phi);
+      const C = centroid(pos, pi.nodeIds);
+      for (const q of [pi, ...legs]) for (const id of q.nodeIds) {
+        const x = pos[id * 3] - C[0], z = pos[id * 3 + 2] - C[2];
+        pos[id * 3] = C[0] + x * c - z * sn;
+        pos[id * 3 + 2] = C[2] + x * sn + z * c;
+        angle[id] += phi;
+      }
+    }
+    return moved;
+  }
+  // grown from a round of a host: move this piece onto that round
+  const host = parts[0];
+  if (!host) return [];
+  const ring = base.nodes.filter((id) => owner.get(id) === host);
+  const hostStart = host.rows.find((r) => r.nodes.length)?.nodes ?? ring;
+  const Hc = centroid(pos, ring);
+  let grow = norm(sub(centroid(pos, hostStart), Hc));
+  if (!isFinite(grow[0]) || Math.hypot(...grow) < 0.5) grow = [0, -1, 0];
+  const own = pi.rows.filter((r) => r.nodes.length);
+  const f0 = centroid(pos, own[0].nodes);
+  const dirNow = norm(sub(centroid(pos, own[own.length - 1].nodes), f0));
+  const rot = rotator(Math.hypot(...dirNow) > 0.5 ? dirNow : [0, -1, 0], grow);
+  // spin so the first stitch sits by the stitch it was worked into
+  const a0 = first.anchors[0] >= 0 ? base.nodes[first.anchors[0]] : ring[0];
+  const proj = (v: V) => norm(sub(v, mul(grow, dot(v, grow))));
+  const spin = rotator(proj(rot(sub(get(pos, first.nodes[0]), f0))), proj(sub(get(pos, a0), Hc)));
+  for (const id of pi.nodeIds) pos.set(add(add(Hc, mul(grow, (g.nodes[first.nodes[0]].h || w) * 0.6)), spin(rot(sub(get(pos, id), f0)))), id * 3);
+  return [];
 }
 
 function attach(
@@ -250,10 +341,15 @@ function attach(
   if (!hostRows.length) return;
   if (seam.hint === 'lid') { attachLid(g, host, pi, pos, seamEdges); return; }
   if (isHandle(pi) && seam.rowA === undefined) { attachHandle(g, host, pi, pos, seamEdges, seam.hint === 'back' ? FRONT + Math.PI : FRONT + Math.PI / 2); return; }
+  if (seam.hint === 'wrap' && pi.piece.construction === 'rows') { attachWrap(g, host, pi, pos, w, seamEdges, seam.wrapAt ?? ''); return; }
+  if ((seam.hint === 'top' || seam.hint === 'default') && seam.rowA === undefined && count === 1 && isCap(host, pi)) { attachCap(g, host, pi, pos, seamEdges); return; }
+  const up = isUpright(host);
+  const nR = hostRows.length;
   let ra = seam.rowA, rb = seam.rowB;
   if (ra === undefined) {
-    if (seam.hint === 'top') { ra = 2; rb = Math.max(3, Math.round(hostRows.length * 0.3)); }
-    else if (seam.hint === 'bottom') { ra = hostRows.length - 2; rb = hostRows.length; }
+    const top = seam.hint === 'top', bottom = seam.hint === 'bottom';
+    if ((top && !up) || (bottom && up)) { ra = 2; rb = Math.max(3, Math.round(nR * 0.3)); }
+    else if (top || bottom) { ra = nR - Math.max(2, Math.round(nR * 0.3)) + 1; rb = nR - 1; }
     else if (/\blower\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.72); rb = Math.round(hostRows.length * 0.85); }
     else if (/\bupper\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.25); rb = Math.round(hostRows.length * 0.4); }
     else { const mid = Math.round(hostRows.length * 0.5); ra = mid - 1; rb = mid + 1; }
@@ -271,15 +367,18 @@ function attach(
   else if (seam.hint === 'side') th += Math.PI / 2;
 
   const hostIds = region.flatMap((r) => r.nodes);
-  const near = hostIds.filter((id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < TAU / 10);
+  // one piece on top (a hat, a bun): the very top, centred
+  const topCentre = seam.hint === 'top' && count === 1 && seam.rowA === undefined;
+  const topRows = up ? host.rows.slice(-2) : host.rows.filter((r) => r.row > 0).slice(0, 2);
+  const near = topCentre ? topRows.flatMap((r) => r.nodes) : hostIds.filter((id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < TAU / 10);
   const target = centroid(pos, near.length ? near : hostIds);
   const hostC = centroid(pos, host.nodeIds);
-  let normal = norm([target[0] - hostC[0], 0, target[2] - hostC[2]]);
+  let normal = topCentre ? [0, 1, 0] as V : norm([target[0] - hostC[0], 0, target[2] - hostC[2]]);
   // a flattened piece (e.g. ears) lies in the plane that contains its axis and faces the front
   const front: V = [0, 0, 1];
   const faceN = norm(sub(front, mul(normal, dot(front, normal))));
   planes.set(pi, Math.hypot(...sub(front, mul(normal, dot(front, normal)))) > 0.2 ? faceN : norm(cross(normal, [0, 1, 0])));
-  if (seam.hint === 'top') normal = norm(add(normal, [0, 1.1, 0]));
+  if (seam.hint === 'top' && !topCentre) normal = norm(add(normal, [0, 1.1, 0]));
   if (seam.hint === 'bottom') normal = norm(add(normal, [0, -1.1, 0]));
 
   // a flat row-worked piece sewn onto the surface (a patch, a label, nori): lay it on, sew all round
@@ -340,6 +439,94 @@ function attach(
   }
 }
 
+/** An open round piece as wide as the host (hair, a cap): it goes over the host's top like a hat. */
+function isCap(host: PieceInstance, pi: PieceInstance): boolean {
+  const edge = pi.rows[pi.rows.length - 1]?.nodes.length ?? 0;
+  const hostMax = Math.max(0, ...host.rows.map((r) => r.nodes.length));
+  return pi.piece.construction !== 'rows' && pi.piece.finish !== 'closed' && pi.rows.length >= 6 && edge >= hostMax * 0.95 && pi.stuffed === 0;
+}
+
+/** A cap: rim on the host's top-most round that is about as wide as the cap's edge, crown up. */
+function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: Float32Array, seamEdges: GEdge[]) {
+  const rows = host.rows.filter((r) => r.row > 0 && r.nodes.length);
+  const edge = pi.rows[pi.rows.length - 1]?.nodes.filter((id) => !g.nodes[id].virtual) ?? [];
+  if (!rows.length || !edge.length) return;
+  const order = isUpright(host) ? [...rows].reverse() : rows;
+  const rimRow = order.find((r) => r.nodes.length >= Math.min(edge.length, Math.max(...rows.map((q) => q.nodes.length))) * 0.9) ?? order[Math.floor(order.length / 2)];
+  const rim = rimRow.nodes;
+  const rimC = centroid(pos, rim);
+  const topC = centroid(pos, order[0].nodes);
+  const axis = norm(sub(topC, rimC));
+  const pC = centroid(pos, pi.nodeIds), eC = centroid(pos, edge);
+  const rot = rotator(norm(sub(pC, eC)), axis);
+  const e0 = rot(sub(get(pos, edge[0]), eC));
+  const r0 = sub(get(pos, rim[0]), rimC);
+  const proj = (v: V) => norm(sub(v, mul(axis, dot(v, axis))));
+  const spin = rotator(proj(e0), proj(r0));
+  for (const id of pi.nodeIds) pos.set(add(rimC, spin(rot(sub(get(pos, id), eC)))), id * 3);
+  const n = Math.min(rim.length, edge.length);
+  const wind = (ids: number[], c: V) => Math.sign(dot(axis, cross(sub(get(pos, ids[0]), c), sub(get(pos, ids[Math.floor(ids.length / 4)]), c))));
+  const same = wind(edge, rimC) === wind(rim, rimC);
+  for (let i = 0; i < n; i++) {
+    const j = same ? i : (n - i) % n;
+    const a = edge[Math.floor((i * edge.length) / n)], b = rim[Math.floor((j * rim.length) / n)];
+    seamEdges.push({ a, b, kind: 'seam', rest: (g.nodes[b].w || 1) * 0.3 });
+  }
+  // the cap lies on the host: every stitch rides just outside the surface under it
+  const hostIds = host.nodeIds.filter((id) => !g.nodes[id].virtual);
+  const lift = (g.nodes[edge[0]].h || 1) * 0.6;
+  for (const id of pi.nodeIds) {
+    if (g.nodes[id].virtual) continue;
+    const pv = get(pos, id);
+    let b = hostIds[0], d2 = Infinity;
+    for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+    seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: lift });
+  }
+}
+
+/**
+ * A strip wrapped round the host (a collar round the shoulders, a tiara round a bun): a ring at the
+ * host's round named by the text, drooping a little where it is wider than the host.
+ */
+function attachWrap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: Float32Array, w: number, seamEdges: GEdge[], at: string) {
+  const rows = host.rows.filter((r) => r.row > 0 && r.nodes.length);
+  const strip = pi.rows.filter((r) => r.nodes.length);
+  if (!rows.length || !strip.length) return;
+  const counts = rows.map((r) => r.nodes.length);
+  let k: number;
+  if (/neck|shoulder|collar/.test(at)) {
+    // the neck: the narrowest round between the body and the head
+    const lo = Math.floor(rows.length * 0.2), hi = Math.ceil(rows.length * 0.85);
+    let neck = lo;
+    for (let i = lo; i < hi; i++) if (counts[i] < counts[neck]) neck = i;
+    k = /shoulder/.test(at) ? Math.max(0, Math.min(rows.length - 1, neck + (isUpright(host) ? -2 : 2))) : neck;
+  } else {
+    k = counts.indexOf(Math.max(...counts));
+  }
+  const ring = rows[k].nodes;
+  const C = centroid(pos, ring);
+  const hostR = ring.reduce((a, id) => a + Math.hypot(pos[id * 3] - C[0], pos[id * 3 + 2] - C[2]), 0) / ring.length;
+  const ids = strip.flatMap((r) => r.nodes);
+  let minx = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (const id of ids) { minx = Math.min(minx, pos[id * 3]); maxx = Math.max(maxx, pos[id * 3]); maxy = Math.max(maxy, pos[id * 3 + 1]); }
+  const L = Math.max(maxx - minx, w);
+  const r = Math.max(L / TAU, hostR + w * 0.6);
+  const droop = (r - hostR) * 0.6;
+  for (const id of ids) {
+    const th = FRONT + (TAU * (pos[id * 3] - minx)) / L;
+    const out = (maxy - pos[id * 3 + 1]) * 0.6; // later rows lie further out and lower
+    const rr = r + out;
+    pos.set([C[0] + rr * Math.cos(th), C[1] - droop - out * 0.8, C[2] + rr * Math.sin(th)], id * 3);
+  }
+  const hostIds = rows.slice(Math.max(0, k - 2), k + 3).flatMap((q) => q.nodes);
+  for (const id of strip[0].nodes) {
+    const pv = get(pos, id);
+    let b = hostIds[0], d2 = Infinity;
+    for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+    seamEdges.push({ a: id, b, kind: 'seam', rest: Math.max(Math.sqrt(d2), w * 0.3) });
+  }
+}
+
 /**
  * A lid: the piece's last round is joined stitch for stitch to the host's open last round. Lay the
  * piece flat across the opening (its right side facing out) and pair the two rounds in order.
@@ -353,18 +540,23 @@ function attachLid(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
   const pC = centroid(pos, pi.nodeIds), eC = centroid(pos, edge);
   // the lid's centre should sit a little out of the opening; its edge on the rim
   const rot = rotator(norm(sub(pC, eC)), axis);
-  // turn the lid so its first stitch lands next to the rim's first stitch
-  const e0 = rot(sub(get(pos, edge[0]), eC));
-  const r0 = sub(get(pos, rim[0]), rimC);
   const proj = (v: V) => norm(sub(v, mul(axis, dot(v, axis))));
-  const spin = rotator(proj(e0), proj(r0));
+  // a lid that is a head (it carries a face, a nose …) keeps its front facing the front;
+  // otherwise turn it so its first stitch lands next to the rim's first stitch
+  const front = rot([0, 0, 1]);
+  const keepFront = Math.abs(dot(norm(front), axis)) < 0.9 && (pi.piece.markers.length > 0 || pi.rows.length > 12);
+  const spin = keepFront ? rotator(proj(front), proj([0, 0, 1])) : rotator(proj(rot(sub(get(pos, edge[0]), eC))), proj(sub(get(pos, rim[0]), rimC)));
   for (const id of pi.nodeIds) pos.set(add(rimC, spin(rot(sub(get(pos, id), eC)))), id * 3);
   const n = Math.min(rim.length, edge.length);
   // both rounds must run the same way around the opening, or the join twists
   const wind = (ids: number[], c: V) => Math.sign(dot(axis, cross(sub(get(pos, ids[0]), c), sub(get(pos, ids[Math.floor(ids.length / 4)]), c))));
   const same = wind(edge, rimC) === wind(rim, rimC);
+  // start the pairing at the rim stitch nearest the lid's first stitch
+  let o = 0, od = Infinity;
+  rim.forEach((id, k) => { const d = sub(get(pos, id), get(pos, edge[0])); const q = dot(d, d); if (q < od) { od = q; o = k; } });
+  const oi = Math.round((o * n) / rim.length);
   for (let i = 0; i < n; i++) {
-    const j = same ? i : (n - i) % n;
+    const j = ((same ? oi + i : oi - i) % n + n) % n;
     const a = edge[Math.floor((i * edge.length) / n)], b = rim[Math.floor((j * rim.length) / n)];
     const d = sub(get(pos, a), get(pos, b));
     seamEdges.push({ a, b, kind: 'seam', rest: Math.min(Math.sqrt(dot(d, d)), (g.nodes[b].w || 1) * 0.3) });

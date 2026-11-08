@@ -17,8 +17,9 @@ export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint
         for (let j = 0; j < m; j++) add(cur.ring, cur.nodes[(j + 1) % m], cur.nodes[j]);
         continue;
       }
-      if (r === 0) continue;
-      const prev = pi.rows[r - 1];
+      if (r === 0 && !pi.baseRow) continue;
+      // a piece worked into other pieces meshes its first row against the stitches it went into
+      const prev = r === 0 ? pi.baseRow! : pi.rows[r - 1];
       const P = prev.nodes;
       const n = P.length;
       let C = cur.nodes;
@@ -37,7 +38,7 @@ export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint
         }
         continue;
       }
-      const prevClosed = prev.closed && prev.row > 0 || prev.ring !== undefined;
+      const prevClosed = prev.closed && prev.row > 0 || prev.ring !== undefined || prev === pi.baseRow;
       for (let j = 0; j < m; j++) {
         const last = j === m - 1;
         const aj = Math.max(0, A[j]);
