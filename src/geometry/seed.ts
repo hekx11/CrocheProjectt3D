@@ -152,7 +152,9 @@ function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAn
       if (!ra.length || !rb.length) continue;
       const n = ra.length;
       const half = ((m.spacingSts ?? 6) / 2) * (TAU / n) + (m.kind === 'safety-eyes' ? 0 : 0);
-      for (const side of [-1, 1]) {
+      // a nose is one mark in the middle; eyes and cheeks come in pairs
+      const sides = m.kind === 'embroidery' && /\bnose\b/i.test(m.text) && !/eye|cheek/i.test(m.text) ? [0] : [-1, 1];
+      for (const side of sides) {
         const th = FRONT + side * half;
         out.push({
           kind: m.kind,

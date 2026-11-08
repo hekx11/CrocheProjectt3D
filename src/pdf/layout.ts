@@ -175,7 +175,7 @@ function proseLines(ps: Seg[], width: number): Seg[] {
         // a soft wrap: the line ran to the column edge and the sentence goes on (a new sentence
         // after "… [24]" or "… stitch." starts a new line of its own)
         const wrap = cur && s.size === cur.size && s.y - cur.y < 1.9 * s.size && (Math.abs(s.x - cur.x) < 1.2 * s.size || (/^[-•✓➝→*]\s/.test(cur.text) && s.x > cur.x && s.x - cur.x < 4 * s.size)) &&
-          (cur.right > right - 5 * s.size || /^[a-z]/.test(s.text)) && !/[:]$/.test(cur.text) && !INLINE_ROW.test(s.text) && !/^[-•✓➝→*]\s/.test(s.text) &&
+          (cur.right > right - 5 * s.size || /^[a-z]/.test(s.text) || /(?:\b(?:and|or|of|the|a|an|between|to|with|in|on|from)|,)$/i.test(cur.text)) && !/[:]$/.test(cur.text) && !INLINE_ROW.test(s.text) && !/^[-•✓➝→*]\s/.test(s.text) &&
           !(/[.!?\])]$/.test(cur.text) && /^[A-Z]/.test(s.text));
         if (cur && wrap) {
           cur.text += (cur.text.endsWith('-') && /^[a-z]/.test(s.text) ? '' : ' ') + s.text;
