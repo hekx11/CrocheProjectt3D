@@ -4,7 +4,7 @@ import { Decoration, MatchDecorator, ViewPlugin, type DecorationSet, type ViewUp
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
 import { parsePattern } from './parser/parse';
 import { buildModel, type Model } from './geometry/pipeline';
-import type { UserMaterials } from './geometry/sizing';
+import { fabricThickness, type UserMaterials } from './geometry/sizing';
 import { CrochetView } from './render/scene';
 import type { Pattern } from './model/types';
 import { renderOutline } from './ui/outline';
@@ -164,7 +164,10 @@ function rebuild(force: boolean) {
   onCursor();
 }
 
-view.onSize = ([x, y, z]) => {
+view.onSize = (ext) => {
+  // the solved mesh is the fabric's mid-surface: add the fabric's own thickness so a flat piece isn't "0.0 cm" thick
+  const t = model ? fabricThickness(model.sizing) : 0;
+  const [x, y, z] = ext.map((v) => v + t);
   const cm = (v: number) => (v / 10).toFixed(1);
   const inch = (v: number) => (v / 25.4).toFixed(1);
   $('size').textContent = `≈ ${cm(x)} × ${cm(y)} × ${cm(z)} cm  (${inch(x)}″ × ${inch(y)}″ × ${inch(z)}″)`;

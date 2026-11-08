@@ -79,9 +79,11 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       let lastYarnNode = -1;
       if (piece.start.kind === 'chain' && !piece.start.ring) {
         const row: GRow = { piece: piece.id, inst, row: 0, nodes: [], anchors: [], closed: false, loop: 'both', line: piece.rows[0]?.line ?? -1 };
+        // A foundation chain is as wide as the stitches worked into it; a narrower chain
+        // gathers the first rows and the solver resolves the conflict by rippling the fabric.
         for (let i = 0; i < piece.start.n; i++) {
-          const id = add({ key: `${piece.name}:${inst}:0:${i}`, piece: piece.id, inst, row: 0, idx: i, u: i, type: 'ch', loop: 'both', w: sz.w * 0.75, h: sz.h * 0.5, color: firstColor, line: row.line, virtual: false });
-          if (lastYarnNode >= 0) edges.push({ a: lastYarnNode, b: id, kind: 'yarn', rest: sz.w * 0.75 });
+          const id = add({ key: `${piece.name}:${inst}:0:${i}`, piece: piece.id, inst, row: 0, idx: i, u: i, type: 'ch', loop: 'both', w: sz.w, h: sz.h * 0.5, color: firstColor, line: row.line, virtual: false });
+          if (lastYarnNode >= 0) edges.push({ a: lastYarnNode, b: id, kind: 'yarn', rest: sz.w });
           lastYarnNode = id;
           row.nodes.push(id);
           row.anchors.push(-1);

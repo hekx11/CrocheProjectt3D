@@ -77,25 +77,37 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
 }
 
 function seedRows(g: StitchGraph, pi: PieceInstance, pos: Float32Array) {
+  // Each row is laid out at its own natural width (sum of stitch widths), centred over the
+  // stitches it is worked into and running in the direction those stitches run. Squeezing a
+  // row into the width of the row below leaves stretched yarn edges that the solver then
+  // relaxes into ripples.
   let y = 0;
   let prevX: number[] = [];
   for (const row of pi.rows) {
     const n = row.nodes.length;
     if (!n) continue;
-    let hsum = 0, wsum = 0;
-    for (const id of row.nodes) { hsum += g.nodes[id].h; wsum += g.nodes[id].w; }
+    let hsum = 0;
+    const widths = row.nodes.map((id) => g.nodes[id].w);
+    for (const id of row.nodes) hsum += g.nodes[id].h;
     const h = hsum / n;
-    const xs: number[] = [];
-    if (!prevX.length) {
-      for (let j = 0; j < n; j++) xs.push(j * (wsum / n));
-    } else {
-      const a0 = Math.max(0, row.anchors[0]);
-      const a1 = Math.max(0, row.anchors[n - 1]);
-      const x0 = prevX[a0] ?? 0;
-      const x1 = prevX[a1] ?? x0 + wsum;
-      for (let j = 0; j < n; j++) xs.push(n === 1 ? x0 : x0 + ((x1 - x0) * j) / (n - 1));
+    const wsum = widths.reduce((a, b) => a + b, 0);
+    let cx = 0, dir = 1;
+    if (prevX.length) {
+      const anchored = row.anchors.filter((a) => a >= 0 && prevX[a] !== undefined);
+      if (anchored.length) {
+        cx = anchored.reduce((s, a) => s + prevX[a], 0) / anchored.length;
+        const first = prevX[anchored[0]], last = prevX[anchored[anchored.length - 1]];
+        if (last !== first) dir = Math.sign(last - first);
+        else dir = -Math.sign((prevX[prevX.length - 1] ?? 0) - (prevX[0] ?? 0)) || 1; // a turned row runs back
+      }
+      y -= h;
     }
-    if (prevX.length) y -= h;
+    const xs: number[] = [];
+    let acc = -wsum / 2;
+    for (let j = 0; j < n; j++) {
+      xs.push(cx + dir * (acc + widths[j] / 2));
+      acc += widths[j];
+    }
     row.nodes.forEach((id, j) => pos.set([xs[j], y, 0], id * 3));
     prevX = xs;
   }
