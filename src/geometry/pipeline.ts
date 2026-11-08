@@ -80,6 +80,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     return {
       nodeIds: pi.nodeIds,
       stuffed: pi.stuffed,
+      // a flat circle worked in rounds (a coaster): every closed round, for rounding out
+      rings: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes) : undefined,
       drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : 0,
       closed: pi.piece.finish === 'closed',
       shape: pi.piece.shape,

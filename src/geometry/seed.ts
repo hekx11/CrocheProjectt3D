@@ -332,6 +332,22 @@ function placeBase(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle: 
   const proj = (v: V) => norm(sub(v, mul(grow, dot(v, grow))));
   const spin = rotator(proj(rot(sub(get(pos, first.nodes[0]), f0))), proj(sub(get(pos, a0), Hc)));
   for (const id of pi.nodeIds) pos.set(add(add(Hc, mul(grow, (g.nodes[first.nodes[0]].h || w) * 0.6)), spin(rot(sub(get(pos, id), f0)))), id * 3);
+  // the first round must run round the same way as the stitches it is worked into, or every
+  // stitch reaches across and the whole piece twists: mirror it if it runs the other way
+  const wind = (ids: number[]) => {
+    const c = centroid(pos, ids);
+    return Math.sign(dot(grow, cross(sub(get(pos, ids[0]), c), sub(get(pos, ids[Math.max(1, Math.floor(ids.length / 4))]), c))));
+  };
+  const hostOrder = first.anchors.filter((a) => a >= 0).map((a) => base.nodes[a]);
+  if (hostOrder.length >= 4 && wind(first.nodes) !== wind(hostOrder)) {
+    const ax = norm(sub(get(pos, first.nodes[0]), add(Hc, mul(grow, dot(sub(get(pos, first.nodes[0]), Hc), grow)))));
+    const m = norm(cross(grow, ax)); // mirror across the plane through the axis and the first stitch
+    const c0 = Hc;
+    for (const id of pi.nodeIds) {
+      const v = sub(get(pos, id), c0);
+      pos.set(add(c0, sub(v, mul(m, 2 * dot(v, m)))), id * 3);
+    }
+  }
   return [];
 }
 
@@ -390,7 +406,13 @@ function attach(
     return;
   }
   // the attached piece's open edge = its last row
-  const edge = pi.rows[pi.rows.length - 1]?.nodes ?? [];
+  // a hat with a brim (a front-loop round, then the brim) is sewn on at the brim's fold, not its
+  // outer edge
+  let edgeRow = pi.rows.length - 1;
+  for (let k = pi.rows.length - 1; k >= Math.max(1, pi.rows.length - 4); k--) {
+    if (pi.rows[k].loop === 'FLO' && pi.rows[pi.rows.length - 1].nodes.length >= pi.rows[k].nodes.length * 1.4) { edgeRow = k; break; }
+  }
+  const edge = pi.rows[edgeRow]?.nodes ?? [];
   if (!edge.length) return;
   const eC = centroid(pos, edge);
   const pC = centroid(pos, pi.nodeIds);
@@ -427,6 +449,23 @@ function attach(
   for (const id of pi.nodeIds) {
     const v = rot(sub(get(pos, id), eC));
     pos.set(add(dest, v), id * 3);
+  }
+  // a hanging flap (an arm sewn on at the neck) rests against the host below it instead of
+  // passing through it: push it out over the host's surface and keep it lying there
+  if (hang) {
+    const hostAll = host.nodeIds.filter((id) => !g.nodes[id].virtual);
+    const lift = (g.nodes[edge[0]].h || w) * 0.7;
+    for (const id of pi.nodeIds) {
+      if (g.nodes[id].virtual) continue;
+      const pv = get(pos, id);
+      let b = hostAll[0], d2 = Infinity;
+      for (const hid of hostAll) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+      const hb = get(pos, b);
+      const out = norm([hb[0] - hostC[0], 0, hb[2] - hostC[2]]);
+      const along = dot(sub(pv, hb), out);
+      if (along < lift) pos.set(add(pv, mul(out, lift - along)), id * 3);
+      if (!edge.includes(id)) seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: Math.max(lift, along) });
+    }
   }
   // seam edges: pair each edge stitch with its nearest host stitch in the region
   for (const id of edge) {

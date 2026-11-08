@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -104,6 +104,33 @@ export class Solver {
    * triangle = width tapers toward the top and the piece is a bit thinner front to back (onigiri);
    * flatBottom = nodes below a base plane are pushed up onto it; oval = taller than wide.
    */
+  /**
+   * A flat circle (a coaster) blocks round: increases stacked in the same place would otherwise
+   * leave corners. Each round is pulled gently toward a circle of its own mean radius.
+   */
+  private roundOut(rings: number[][], n: [number, number, number]) {
+    const p = this.pos;
+    let cx = 0, cy = 0, cz = 0, m = 0;
+    for (const r of rings) for (const id of r) { cx += p[id * 3]; cy += p[id * 3 + 1]; cz += p[id * 3 + 2]; m++; }
+    if (!m) return;
+    cx /= m; cy /= m; cz /= m;
+    for (const r of rings) {
+      if (r.length < 6) continue;
+      const vs = r.map((id) => {
+        let dx = p[id * 3] - cx, dy = p[id * 3 + 1] - cy, dz = p[id * 3 + 2] - cz;
+        const d = dx * n[0] + dy * n[1] + dz * n[2];
+        dx -= d * n[0]; dy -= d * n[1]; dz -= d * n[2];
+        return [dx, dy, dz, Math.hypot(dx, dy, dz) || 1e-6];
+      });
+      const R = vs.reduce((a, v) => a + v[3], 0) / vs.length;
+      r.forEach((id, j) => {
+        const [dx, dy, dz, L] = vs[j];
+        const k = ((R - L) / L) * 0.25;
+        p[id * 3] += dx * k; p[id * 3 + 1] += dy * k; p[id * 3 + 2] += dz * k;
+      });
+    }
+  }
+
   private shapeBy(pi: { nodeIds: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean } }) {
     const p = this.pos, ids = pi.nodeIds, sh = pi.shape!;
     let cx = 0, cy = 0, cz = 0, y0 = Infinity, y1 = -Infinity;
@@ -189,6 +216,7 @@ export class Solver {
         const g = pi.drape * pi.hAvg;
         for (const id of pi.nodeIds) if (!(fixed && fixed[id])) p[id * 3 + 1] -= g;
       }
+      if (pi.rings) this.roundOut(pi.rings, pi.planeNormal);
       if (pi.shape) this.shapeBy(pi);
       if (pi.flat) {
         // pull toward the best-fit plane through the centroid (normal = average normal)

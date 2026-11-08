@@ -178,7 +178,9 @@ export class CrochetView {
     this.scene.add(this.mesh);
     if (YARN3D) {
       // the surface is now what shows between the strands: darker, like the inside of the fabric
-      mat.color.setScalar(0.5);
+      // (not black: on flat lace-like work such as a coaster the gaps are large and show a lot)
+      mat.color.setScalar(0.72);
+      mat.map = null;
       mat.sheen = 0;
       this.yarn.build(model, look);
     } else {
