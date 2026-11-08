@@ -380,12 +380,20 @@ export class CrochetView {
     if (this.needsFit) this.fit();
   }
 
+  private markMats = new Map<string, THREE.Material>();
+  private markMat(key: string, make: () => THREE.Material): THREE.Material {
+    let m = this.markMats.get(key);
+    if (!m) { m = make(); this.markMats.set(key, m); }
+    return m;
+  }
+
   private updateMarkers() {
     if (!this.model) return;
     for (const o of this.markers.children) {
       const m = o as THREE.Mesh;
+      // geometry is rebuilt every frame; materials are shared and kept (disposing one frees its
+      // shader program, and making it again recompiles the shader on every solver frame)
       m.geometry?.dispose();
-      (m.material as THREE.Material | undefined)?.dispose();
     }
     this.markers.clear();
     const pos = this.pos, nrm = this.nrm;
@@ -399,7 +407,7 @@ export class CrochetView {
       const n0 = this.model.graph.nodes[ids[0]];
       const tube = new THREE.Mesh(
         new THREE.TubeGeometry(curve, ids.length * 3, Math.max(0.6, n0.h * 0.45), 8, false),
-        new THREE.MeshStandardMaterial({ color: new THREE.Color(n0.color), roughness: 0.9 }),
+        this.markMat(`cord:${n0.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(n0.color), roughness: 0.9 })),
       );
       this.markers.add(tube);
     }
@@ -434,7 +442,7 @@ export class CrochetView {
         }
         const tube = new THREE.Mesh(
           new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), steps * 4, r, 10, false),
-          new THREE.MeshStandardMaterial({ color: new THREE.Color(st.color), roughness: 0.9 }),
+          this.markMat(`cord:${st.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(st.color), roughness: 0.9 })),
         );
         this.markers.add(tube);
       });
@@ -448,7 +456,7 @@ export class CrochetView {
         const r = m.sizeMm / 2;
         const eye = new THREE.Mesh(
           new THREE.SphereGeometry(r, 24, 16),
-          new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05 }),
+          this.markMat('eye', () => new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05 })),
         );
         eye.scale.set(1, 1, 0.6);
         eye.position.copy(p).addScaledVector(n, r * 0.25);
@@ -459,7 +467,7 @@ export class CrochetView {
         const r = this.model.sizing.w * 0.32;
         const c = new THREE.Color(m.color ?? '#1a1a1a');
         if (m.color) c.multiplyScalar(0.93);
-        const nose = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+        const nose = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), this.markMat(`nose:${m.color}`, () => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 })));
         nose.scale.set(1.25, 0.9, 0.7);
         nose.position.copy(p).addScaledVector(n, r * 0.45);
         nose.lookAt(p.clone().addScaledVector(n, 10));
@@ -469,7 +477,7 @@ export class CrochetView {
         const r = this.model.sizing.w * 0.55;
         const cheek = new THREE.Mesh(
           new THREE.CircleGeometry(r, 20),
-          new THREE.MeshStandardMaterial({ color: new THREE.Color(m.color ?? '#f2a7c3'), roughness: 1, transparent: true, opacity: 0.55, depthWrite: false }),
+          this.markMat(`cheek:${m.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(m.color ?? '#f2a7c3'), roughness: 1, transparent: true, opacity: 0.55, depthWrite: false })),
         );
         cheek.scale.set(1.3, 0.8, 1);
         cheek.position.copy(p).addScaledVector(n, 1.0);
@@ -478,7 +486,7 @@ export class CrochetView {
       } else {
         const brow = new THREE.Mesh(
           new THREE.CapsuleGeometry(1.2, (this.model.sizing.w * 0.9), 4, 8),
-          new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }),
+          this.markMat('line', () => new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })),
         );
         brow.position.copy(p).addScaledVector(n, 0.8);
         // lie along the surface, roughly horizontal
