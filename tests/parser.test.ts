@@ -340,3 +340,17 @@ Fasten off. Sew the tie to the front of the body, just below the head and in bet
     expect(cheeks[0].spacingSts).toBe((eyes.spacingSts ?? 6) + 6);
   });
 });
+
+describe('hair strands', () => {
+  it('counts strands worked off the last round, with their chain lengths', () => {
+    const p = parsePattern(`Hair
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: sc in all 12 st [12]
+Rnd 4: (ch 30, start in second ch from hook, sc in next 29 ch, slst in next st of hair base) repeat 2 times, (ch 31, start in second ch from hook, sc in next 30 ch, slst in next st of hair base) repeat 2 times [4 strands in total]
+`);
+    const r = p.pieces[0].rows[p.pieces[0].rows.length - 1];
+    expect(r.skipGeometry).toBe(true);
+    expect(r.strands?.map((s) => s.len)).toEqual([30, 30, 31, 31]);
+  });
+});

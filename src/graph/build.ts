@@ -48,6 +48,9 @@ export interface PieceInstance {
   baseRow?: GRow;
   /** Chains made between joined parts (the "ch 2" between two legs); they belong to no row. */
   baseChains?: number[];
+  /** Long strands (hair strands, curls) worked off a row: the stitch each hangs from. Drawn as
+   *  cords laid over the piece, not meshed. */
+  strands?: { base: number; len: number; color: string }[];
 }
 
 export interface StitchGraph {
@@ -128,7 +131,13 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
 
       const edgeStart = edges.length;
       for (const r of piece.rows) {
-        if (r.skipGeometry) continue;
+        if (r.skipGeometry) {
+          if (r.strands && prevWork.length) {
+            const color = yarnColor.get(r.yarnId) ?? firstColor;
+            r.strands.forEach((st, i) => (pi.strands ??= []).push({ base: prevWork[i % prevWork.length], len: st.len, color }));
+          }
+          continue;
+        }
         const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode);
         const color = yarnColor.get(r.yarnId) ?? firstColor;
         const row: GRow = { piece: piece.id, inst, row: r.index, nodes: [], anchors: [], closed: piece.construction !== 'rows' && !r.turn && !shortRows, loop: 'both', line: r.line };

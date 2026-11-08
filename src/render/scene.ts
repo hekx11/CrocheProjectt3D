@@ -403,6 +403,42 @@ export class CrochetView {
       );
       this.markers.add(tube);
     }
+    // long strands (hair strands, curls): twisted and laid round the piece from where they hang,
+    // half to each side, the later ones of each side a little lower
+    for (const pi of this.model.graph.instances) {
+      if (!pi.strands?.length) continue;
+      const P = (id: number) => new THREE.Vector3(pos[id * 3], pos[id * 3 + 1], pos[id * 3 + 2]);
+      const crown = pi.centre !== undefined ? P(pi.centre) : null;
+      const h = this.model.sizing.h;
+      const half = Math.ceil(pi.strands.length / 2);
+      pi.strands.forEach((st, k) => {
+        const ring = pi.rows.find((r) => r.nodes.includes(st.base))?.nodes;
+        if (!ring || ring.length < 6) return;
+        const c = new THREE.Vector3();
+        for (const id of ring) c.add(P(id));
+        c.multiplyScalar(1 / ring.length);
+        const up = crown ? crown.clone().sub(c).normalize() : new THREE.Vector3(0, 1, 0);
+        const j0 = ring.indexOf(st.base);
+        const dir = k < half ? 1 : -1;
+        const tier = k < half ? half - 1 - k : k - half;
+        // a twisted strand is much shorter than its chain; it reaches round the side of the head
+        const steps = Math.max(3, Math.min(Math.round(st.len * 0.22), Math.round(ring.length * 0.32)));
+        const r = h * 0.85;
+        const pts: THREE.Vector3[] = [];
+        for (let s = 0; s <= steps; s++) {
+          const q = P(ring[(((j0 + dir * s) % ring.length) + ring.length) % ring.length]);
+          const out = q.clone().sub(c);
+          out.addScaledVector(up, -out.dot(up)).normalize();
+          q.addScaledVector(out, r * 1.4 + tier * r * 0.3).addScaledVector(up, -tier * r * 1.3 - (s / steps) * r * 1.2);
+          pts.push(q);
+        }
+        const tube = new THREE.Mesh(
+          new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), steps * 4, r, 10, false),
+          new THREE.MeshStandardMaterial({ color: new THREE.Color(st.color), roughness: 0.9 }),
+        );
+        this.markers.add(tube);
+      });
+    }
     for (const m of this.model.markers) {
       const p = new THREE.Vector3(
         (pos[m.a * 3] + pos[m.b * 3]) / 2, (pos[m.a * 3 + 1] + pos[m.b * 3 + 1]) / 2, (pos[m.a * 3 + 2] + pos[m.b * 3 + 2]) / 2,

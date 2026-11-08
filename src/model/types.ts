@@ -68,6 +68,9 @@ export interface RowDef {
   status: LineStatus;
   /** Decoration the 3D view leaves out (long chain strands for hair curls). */
   skipGeometry?: boolean;
+  /** Long strands worked off this row (hair strands, curls): one entry per strand, in order,
+   *  each anchored to the next stitch of the row below. Drawn as cords, not meshed. */
+  strands?: { len: number }[];
 }
 
 export interface Section { name: string; firstRow: number; yarnId?: string; labelMap: Map<number, number> }

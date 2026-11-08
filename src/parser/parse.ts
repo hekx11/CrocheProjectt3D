@@ -427,7 +427,19 @@ export function parsePattern(text: string): Pattern {
       // Long chain strands worked back from the hook mid-round (hair curls): readable, but not a
       // fabric the 3D view can lay out yet, so the round is listed and left out of the model.
       const strands = /\bch\s*\d{2,}\s*,\s*(?:start(?:ing)?\s+)?(?:in|into)\s+(?:the\s+)?(?:second|third|2nd|3rd|2|3)\s+ch\s+from/i.test(instr) && piece.rows.length > 0;
+      let strandList: { len: number }[] | undefined;
       if (strands) {
+        // "(ch 66, start in second ch from hook, …) repeat 2 times, (ch 67, …) repeat 2 times"
+        strandList = [];
+        const t = body.toLowerCase();
+        const grp = /\(\s*ch\s*(\d{2,})\b[^()]*(?:\([^()]*\)[^()]*)*\)\s*(?:(?:x|repeat|rep)\s*(\d+)(?:\s*times)?)?/g;
+        for (let m; (m = grp.exec(t)); ) for (let i = 0; i < +(m[2] ?? 1); i++) strandList.push({ len: +m[1] });
+        if (!strandList.length) for (const m of t.matchAll(/\bch\s*(\d{2,})\b/g)) strandList.push({ len: +m[1] });
+        const total = /\[?\s*(\d+)\s+(?:strands|curls)\b/.exec(t);
+        if (total && strandList.length && +total[1] !== strandList.length) {
+          const len = strandList[0].len;
+          strandList = Array.from({ length: +total[1] }, (_, i) => strandList![i] ?? { len });
+        }
         parsed = { ...parsed, ops: [], ignored: [], unreadable: false, expectedCount: undefined };
         notesHere.push('long chain strands (curls) are left out of the 3D view');
       }
@@ -464,7 +476,7 @@ export function parsePattern(text: string): Pattern {
         };
         // "computedCount" in the graph sense = all produced stitches the next row can work into
         row.computedCount = ex.stitches.length;
-        if (strands) { row.skipGeometry = true; row.computedCount = prev?.computedCount ?? 0; }
+        if (strands) { row.skipGeometry = true; row.computedCount = prev?.computedCount ?? 0; if (strandList?.length) row.strands = strandList; }
         piece.rows.push(row);
         sec.labelMap.set(label, row.index);
         if (label === a) {

@@ -660,6 +660,15 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
     const liftL = (g.nodes[edge[0]].h || 1) * 1.2;
     // only for hair on a head with a face (eyes): tipped back by a few rounds
     const tiltRows = eyes.length ? 3 : 0;
+    // where the strands hang from, as a fraction round the cap's rounds
+    let strandAt: number | undefined;
+    if (pi.strands?.length) {
+      const row = own.find((q) => q.nodes.includes(pi.strands![0].base));
+      if (row) {
+        const idx = pi.strands.map((st) => row.nodes.indexOf(st.base)).filter((x) => x >= 0);
+        if (idx.length) strandAt = (idx.reduce((a, b) => a + b, 0) / idx.length) / row.nodes.length;
+      }
+    }
     // the stitch each stitch is worked into (short rows can work into older rounds too)
     const mine = new Set(pi.nodeIds), into = new Map<number, number>();
     for (const e of g.edges) if (e.kind === 'into' && mine.has(e.b) && !into.has(e.b)) into.set(e.b, e.a);
@@ -678,8 +687,17 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
       const base = Math.min(i, last);
       const hr = order[base].nodes;
       const hc0 = centroid(pos, hr);
+      // strands hang at the front ("start making the hair strands at the front"): turn the cap so
+      // the stitches they hang from face forward
+      let off = 0;
+      if (strandAt !== undefined) {
+        let fi = 0, fd = -Infinity;
+        hr.forEach((q, qi) => { const d = dot(norm(sub(get(pos, q), hc0)), [0, 0, 1]); if (d > fd) { fd = d; fi = qi; } });
+        off = fi / hr.length - strandAt;
+      }
       r.nodes.forEach((id, j) => {
-        let hp = get(pos, hr[Math.floor((j * hr.length) / r.nodes.length) % hr.length]);
+        const f = (((j / r.nodes.length + off) % 1) + 1) % 1;
+        let hp = get(pos, hr[Math.floor(f * hr.length) % hr.length]);
         let hc = hc0;
         // hair sits back on the head: higher over the forehead, lower at the back, more so
         // towards the rim (none at the crown)
