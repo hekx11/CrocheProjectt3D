@@ -368,6 +368,15 @@ function attach(
     const top = seam.hint === 'top', bottom = seam.hint === 'bottom';
     if ((top && !up) || (bottom && up)) { ra = 2; rb = Math.max(3, Math.round(nR * 0.3)); }
     else if (top || bottom) { ra = nR - Math.max(2, Math.round(nR * 0.3)) + 1; rb = nR - 1; }
+    else if (/\bneck\b|\bbelow (?:of )?the head\b|\bunder (?:the )?head\b/i.test(seam.text) && nR >= 8) {
+      // the neck: the narrowest round between the body and the head
+      const from = Math.round(nR * 0.2), to = Math.round(nR * 0.8);
+      let best = from;
+      for (let i = from; i <= to; i++) if (hostRows[i] && hostRows[i].nodes.length < hostRows[best].nodes.length) best = i;
+      const neck = hostRows[best].row;
+      // just under it, on the chest, clear of the head
+      ra = up ? neck - 3 : neck + 2; rb = up ? neck - 2 : neck + 3;
+    }
     else if (/\blower\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.72); rb = Math.round(hostRows.length * 0.85); }
     else if (/\bupper\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.25); rb = Math.round(hostRows.length * 0.4); }
     else { const mid = Math.round(hostRows.length * 0.5); ra = mid - 1; rb = mid + 1; }
@@ -400,7 +409,7 @@ function attach(
   if (seam.hint === 'bottom') normal = norm(add(normal, [0, -1.1, 0]));
 
   // a flat row-worked piece sewn onto the surface (a patch, a label, nori): lay it on, sew all round
-  if (pi.piece.construction === 'rows' && !pi.piece.flatten && pi.stuffed === 0 && /\bonto\b|\bon to\b|\bappliqu/i.test(seam.text)) {
+  if (pi.piece.construction === 'rows' && !pi.piece.flatten && pi.stuffed === 0 && (/\bonto\b|\bon to\b|\bappliqu/i.test(seam.text) || (seam.hint === 'front' && pi.rows.filter((r) => r.row > 0).length <= 3))) {
     attachPatch(g, pi, host.nodeIds.filter((id) => !g.nodes[id].virtual), target, normal, pos, seamEdges);
     planes.set(pi, normal);
     return;
