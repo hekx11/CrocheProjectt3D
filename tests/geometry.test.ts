@@ -115,3 +115,29 @@ Wrap the foundation chain of the veil around the ball.
     expect(inside.length).toBe(0);
   });
 });
+
+describe('hat brims', () => {
+  it('holds a brim out flat at its full width instead of crumpling it', () => {
+    const model = buildModel(parsePattern(`Hat
+Rnd 1: 5 sc in a magic ring [5]
+Rnd 2: inc in all 5 st [10]
+Rnd 3: (sc, inc) repeat 5 times [15]
+Rnd 4: (2 sc, inc) repeat 5 times [20]
+Rnd 5: BLO sc in all 20 st [20]
+Rnd 6 – 9: sc in all 20 st [20]
+Rnd 10: FLO sc in all 20 st [20]
+Rnd 11: inc in all 20 st [40]
+Rnd 12: sc in all 40 st [40]
+Fasten off.
+`), { tension: 'normal' });
+    expect(model.solverInput.instances[0].brim?.rings.length).toBe(2);
+    const s = new Solver(model.solverInput);
+    for (let f = 0; f < 300; f++) if (s.step(10) < 0.002) break;
+    const rows = model.graph.instances[0].rows;
+    const last = rows[rows.length - 1].nodes;
+    const c = [0, 1, 2].map((k) => last.reduce((a, id) => a + s.pos[id * 3 + k], 0) / last.length);
+    const r = last.reduce((a, id) => a + Math.hypot(s.pos[id * 3] - c[0], s.pos[id * 3 + 1] - c[1], s.pos[id * 3 + 2] - c[2]), 0) / last.length;
+    const nominal = last.reduce((a, id) => a + model.graph.nodes[id].w, 0) / (2 * Math.PI);
+    expect(r).toBeGreaterThan(nominal * 0.8);
+  });
+});

@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -149,6 +149,36 @@ export class Solver {
    * A flat circle (a coaster) blocks round: increases stacked in the same place would otherwise
    * leave corners. Each round is pulled gently toward a circle of its own mean radius.
    */
+  /**
+   * A brim (rounds after a front-loop fold that grow much wider): it stands out from the fold as a
+   * flat ring at its full width. Unstuffed, nothing else holds it out, and smoothing pulls the
+   * free edge in until the brim crumples.
+   */
+  private holdBrim(b: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }) {
+    const p = this.pos;
+    const cen = (ids: number[]) => {
+      const c = [0, 0, 0];
+      for (const id of ids) for (let k = 0; k < 3; k++) c[k] += p[id * 3 + k] / ids.length;
+      return c;
+    };
+    const C = cen(b.fold), T = cen(b.top);
+    let ax = [C[0] - T[0], C[1] - T[1], C[2] - T[2]];
+    const al = Math.hypot(ax[0], ax[1], ax[2]);
+    if (al < 1e-6) return;
+    ax = ax.map((v) => v / al);
+    b.rings.forEach((r, j) => {
+      const R = b.radius[j];
+      for (const id of r) {
+        const v = [p[id * 3] - C[0], p[id * 3 + 1] - C[1], p[id * 3 + 2] - C[2]];
+        const a = v[0] * ax[0] + v[1] * ax[1] + v[2] * ax[2];
+        const rad = [v[0] - a * ax[0], v[1] - a * ax[1], v[2] - a * ax[2]];
+        const L = Math.hypot(rad[0], rad[1], rad[2]) || 1e-6;
+        const kr = ((R - L) / L) * 0.3;
+        for (let c = 0; c < 3; c++) p[id * 3 + c] += rad[c] * kr - a * ax[c] * 0.3;
+      }
+    });
+  }
+
   private roundOut(rings: number[][], n: [number, number, number]) {
     const p = this.pos;
     let cx = 0, cy = 0, cz = 0, m = 0;
@@ -259,6 +289,7 @@ export class Solver {
         for (const id of pi.nodeIds) if (!(fixed && fixed[id])) { p[id * 3 + 1] -= g; if (drop) drop[this.comp![id]] += g; }
       }
       if (pi.rings) this.roundOut(pi.rings, pi.planeNormal);
+      if (pi.brim) this.holdBrim(pi.brim);
       if (pi.shape) this.shapeBy(pi);
       if (pi.flat) {
         // pull toward the best-fit plane through the centroid (normal = average normal)
