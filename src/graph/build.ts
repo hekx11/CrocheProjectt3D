@@ -130,7 +130,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         if (r.skipGeometry) continue;
         const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode);
         const color = yarnColor.get(r.yarnId) ?? firstColor;
-        const row: GRow = { piece: piece.id, inst, row: r.index, nodes: [], anchors: [], closed: piece.construction !== 'rows', loop: 'both', line: r.line };
+        const row: GRow = { piece: piece.id, inst, row: r.index, nodes: [], anchors: [], closed: piece.construction !== 'rows' && !r.turn && !shortRows, loop: 'both', line: r.line };
         if (ringMode) row.ring = pi.centre;
         let loops = 0;
         const prodIndexOf = new Map<number, number>();
