@@ -5,7 +5,10 @@ import { COLORS, DEFAULT_YARN_COLOR, FIBERS, WEIGHT_NAMES } from '../model/dicti
 import { detectTerms, normalize } from './normalize';
 import { countOf, execute, parseRowText } from './row';
 
-const LABEL_RE = /^\s*(?:(rnds?|rounds?|rows?|r)\.?\s*)?(\d+)(?:\s*(?:-|–|—|to)\s*(\d+))?\s*[:.)](?!\d)\s*|^\s*(rnds?|rounds?|rows?|r)\.?\s*(\d+)(?:\s*(?:-|–|—|to)\s*(\d+))?\s+/i;
+// "Rnd 5:", "5.", "Rnds 6-10:", "Round 10 - Round 14:", "R4-6 sc around"
+const LABEL_RE = /^\s*(?:(rnds?|rounds?|rows?|r)\.?\s*)?(\d+)(?:\s*(?:-|–|—|to)\s*(?:(?:rnds?|rounds?|rows?|r)\.?\s*)?(\d+))?\s*[:.)](?!\d)\s*|^\s*(rnds?|rounds?|rows?|r)\.?\s*(\d+)(?:\s*(?:-|–|—|to)\s*(?:(?:rnds?|rounds?|rows?|r)\.?\s*)?(\d+))?\s+/i;
+/** A piece that is a single unlabelled round: "6hdc in the magic ring (6)" (tiny ears, noses). */
+const FIRST_ROUND_RE = /^\s*\d+\s*(?:sc|hdc|dc|tr|single crochets?|half double crochets?|double crochets?)\b[^.]*\b(?:magic ring|magic circle|adjustable ring|mr)\b/i;
 const COLOR_NAMES = Object.keys(COLORS).sort((a, b) => b.length - a.length);
 
 function colorIn(s: string): string | undefined {
@@ -82,11 +85,13 @@ function readMaterials(line: string, mat: Materials, terms: 'US' | 'UK'): boolea
 function headingInfo(line: string): { name: string; quantity: number; color?: string } {
   let name = line.trim().replace(/[:.]+$/, '');
   let quantity = 1;
+  name = name.replace(/\b(make|x)\s+(two|three|four|five|six)\b/i, (_m, w, n) => `${w} ${({ two: 2, three: 3, four: 4, five: 5, six: 6 } as Record<string, number>)[n.toLowerCase()]}`);
   const q = /\(?\s*(?:make|x)\s*(\d+)\s*\)?|\(?\s*(\d+)\s*x\s*\)?$/i.exec(name);
   if (q) { quantity = +(q[1] ?? q[2]); name = name.replace(q[0], '').trim(); }
   const color = colorIn(name);
   if (color) name = name.replace(new RegExp(`\\(?\\s*${color}\\s*\\)?`, 'i'), '').trim();
-  name = name.replace(/\(\s*\)/g, '').trim();
+  name = name.replace(/\(\s*[,;]?\s*\)/g, '').replace(/^[\s,;()]+|[\s,;(]+$/g, '').trim();
+  if ((name.match(/\(/g)?.length ?? 0) < (name.match(/\)/g)?.length ?? 0)) name = name.replace(/^([^)]*)\)/, '$1').trim();
   if (name === name.toUpperCase()) name = name.charAt(0) + name.slice(1).toLowerCase();
   return { name: name || 'Piece', quantity, color };
 }
@@ -97,7 +102,7 @@ function looksLikeHeading(line: string): boolean {
   if (/[.!?]$/.test(t) && !/\)\.?$/.test(t)) return false;
   const words = t.replace(/\([^)]*\)/g, "").trim().split(/\s+/).length;
   if (words > 7) return false;
-  if (/^(add|insert|place|sew|stuff|fasten|attach|embroider|flatten|weave|cut|leave|do|work|repeat|turn|join|pull|close|using|with)\b/i.test(t)) return false;
+  if (/^(add|insert|place|sew|stuff|fasten|attach|embroider|flatten|weave|cut|leave|do|work|repeat|turn|join|pull|close|using|use|with)\b/i.test(t)) return false;
   const n = normalize(t);
   if (/\b(sc|hdc|dc|tr|slst|inc|dec|mr)\b/.test(n) && /\d/.test(n)) return false;
   return true;
@@ -163,7 +168,8 @@ export function parsePattern(text: string): Pattern {
   const lines: LineInfo[] = [];
   let title: string | undefined;
 
-  const rawLines = text.split('\n');
+  // "{5 rounds}" style notes repeat what the label says; blank them out (same length keeps offsets)
+  const rawLines = text.replace(/\{[^}\n]*\}/g, (m) => ' '.repeat(m.length)).split('\n');
   const offsets: number[] = [];
   { let o = 0; for (const l of rawLines) { offsets.push(o); o += l.length + 1; } }
 
@@ -225,7 +231,11 @@ export function parsePattern(text: string): Pattern {
     const body = ann >= 0 ? rawLine.slice(0, ann) : rawLine;
     const annotation = ann >= 0 ? rawLine.slice(ann + 2) : null;
 
-    const lm = LABEL_RE.exec(body);
+    let lm = LABEL_RE.exec(body);
+    if (!lm && FIRST_ROUND_RE.test(body) && (pending !== null || (piece !== undefined && piece !== null && piece.rows.length === 0))) {
+      lm = Object.assign([''], { 2: '1', index: 0, input: body }) as unknown as RegExpExecArray;
+      diagnostics.push({ severity: 'info', code: 'assumption', line: li, src: lineSrc, message: 'No round label here, read as round 1.' });
+    }
     if (lm) {
       info.kind = 'row';
       sawRow = true;
@@ -234,6 +244,14 @@ export function parsePattern(text: string): Pattern {
       const word = (lm[1] ?? lm[4] ?? '').toLowerCase();
       const instr = annotation ?? body.slice(lm[0].length);
       const normalized = normalize(instr, terms);
+      const chainOnly = /^ch (\d+)\s*[.,]?\s*$/.exec(normalized);
+      if (chainOnly && a === 1 && b === 1 && (!piece || pending || finished || piece.rows.length === 0)) {
+        info.kind = 'start';
+        const start: PieceDef['start'] = { kind: 'chain', n: +chainOnly[1], ring: false };
+        if (piece && !pending && !finished) { piece.start = start; piece.construction = 'rows'; }
+        else pendingStart = start;
+        continue;
+      }
       const startsNew = /\bmr\b/.test(normalized) || (a === 1 && /^\s*ch \d+/.test(normalized) && /ring/.test(normalized));
 
       const needNew = !piece || (pending !== null && (finished || startsNew)) || (finished && startsNew) || (startsNew && a === 1 && piece.rows.length > 0);
@@ -375,6 +393,8 @@ export function parsePattern(text: string): Pattern {
       if (!start.ring && piece && !pending && !finished && piece.rows.length === 0) piece.construction = 'rows';
       continue;
     }
+    const useYarn = /^(?:use|using|with)\s+(.{1,30}?)\s+(?:colou?r\s+)?yarn\b/i.exec(body.trim());
+    if (useYarn && colorIn(useYarn[1]) && pending) { pending.color = colorIn(useYarn[1]); info.kind = 'material'; continue; }
     if (/^(make|start with) (a )?mr\b/.test(n)) { info.kind = 'start'; pendingStart = { kind: 'magic-ring' }; continue; }
 
     if (looksLikeHeading(body) && !/\b(sew|stuff|fasten|insert|attach|embroider|flatten)\b/i.test(body)) {
@@ -396,7 +416,7 @@ export function parsePattern(text: string): Pattern {
       const s = snt.text.toLowerCase();
       const src: Span = { from: lineSrc.from + snt.from, to: lineSrc.from + snt.from + snt.text.length };
       const p = piece;
-      if (/fasten off|weave in|close the hole|close up/.test(s)) {
+      if (/fasten( off)?\b|weave in|close the hole|close up/.test(s)) {
         kind = 'finish';
         if (p) {
           finished = true;
@@ -407,18 +427,21 @@ export function parsePattern(text: string): Pattern {
       else if (/\bstuff/.test(s)) { if (p) p.stuffing = /light/.test(s) ? 'light' : 'firm'; kind = 'marker'; }
       if (/\bflatten/.test(s) && p) { p.flatten = true; kind = 'marker'; }
       if (!p) continue;
-      const between = /between\s+(?:rnds?|rows?|rounds?|r)\.?\s*(\d+)\s*(?:and|&|-)\s*(\d+)/.exec(s);
+      const between = /between\s+(?:rnds?|rows?|rounds?|r)\.?\s*(\d+)\s*(?:and|&|-|to)\s*(?:(?:rnds?|rows?|rounds?|r)\.?\s*)?(\d+)/.exec(s);
       const atRow = /(?:at|on|in)\s+(?:rnd|row|round|r)\.?\s*(\d+)/.exec(s);
       const spacing = /(\d+)\s*(?:st|sts|stitch(?:es)?)\s*(?:apart|between|in between)|about\s+(\d+)\s*(?:st|sts|stitch(?:es)?)/.exec(s);
       if (/\bsew\b|\battach\b/.test(s)) {
         kind = 'assembly';
         const host = pieces.find((q) => q !== p && s.includes(q.name.toLowerCase().replace(/s$/, ''))) ?? pieces.find((q) => q !== p);
         if (host) {
-          const hint: Seam['hint'] = /below (the )?eyes/.test(s) ? 'below-eyes' : /\btop\b/.test(s) ? 'top' : /\bsides?\b/.test(s) ? 'side' : /\bfront\b/.test(s) ? 'front' : /\bback\b/.test(s) ? 'back' : /\bbottom\b/.test(s) ? 'bottom' : 'default';
+          const hint: Seam['hint'] = /below (the )?eyes/.test(s) ? 'below-eyes' : /\btop\b/.test(s) ? 'top' : /\bsides?\b/.test(s) ? 'side' : /\bfront\b/.test(s) ? 'front' : /\bback\b(?!\s+loops?)/.test(s) ? 'back' : /\bbottom\b/.test(s) ? 'bottom' : 'default';
           const seam: Seam = { piece: p.id, host: host.id, hint, text: snt.text.trim(), line: li, src, spacingSts: spacing ? +(spacing[1] ?? spacing[2]) : undefined };
           if (between) { seam.rowA = resolveRow(host, +between[1], li, src); seam.rowB = resolveRow(host, +between[2], li, src); }
           else if (atRow) { seam.rowA = seam.rowB = resolveRow(host, +atRow[1], li, src); }
           if (hint === 'default' && seam.rowA === undefined) diagnostics.push({ severity: 'info', code: 'assumption', line: li, src, message: `Placement is vague, using defaults (sides, mid-height of ${host.name}). Add "=> sew to ${host.name.toLowerCase()} rnds a-b at front/top/side" to fix.` });
+          // one seam per pair: later sentences about the same join only add rows they name
+          const dup = seams.find((q) => q.piece === seam.piece && q.host === seam.host);
+          if (dup) { if (dup.rowA === undefined && seam.rowA !== undefined) Object.assign(dup, { rowA: seam.rowA, rowB: seam.rowB }); if (dup.hint === 'default') dup.hint = seam.hint; continue; }
           seams.push(seam);
           if (p.finish === 'open' ) p.finish = 'open-with-tail';
         } else diagnostics.push({ severity: 'warning', code: 'unresolved-reference', line: li, src, message: 'No other piece to sew this to.' });
@@ -471,6 +494,20 @@ export function parsePattern(text: string): Pattern {
     const rank = { ok: 0, assumption: 1, ambiguous: 2, unreadable: 3 } as const;
     const st = d.severity === 'error' ? 'unreadable' : d.severity === 'warning' ? 'ambiguous' : 'assumption';
     if (rank[st] > rank[li.status]) li.status = st;
+  }
+  // A piece whose last round matches the host's open last round, attached with no place named, is a
+  // lid joined stitch for stitch (coffee in a cup). Stuffing put in "before finishing the round" fills
+  // the host under the lid.
+  for (const seam of seams) {
+    if (seam.hint !== 'default' || seam.rowA !== undefined) continue;
+    const p = pieces.find((q) => q.id === seam.piece), h = pieces.find((q) => q.id === seam.host);
+    if (!p || !h || h.finish === 'closed' || !p.rows.length || !h.rows.length) continue;
+    if (p.rows[p.rows.length - 1].computedCount !== h.rows[h.rows.length - 1].computedCount || p.quantity !== 1) continue;
+    seam.hint = 'lid';
+    const vague = diagnostics.findIndex((d) => d.line === seam.line && d.message.startsWith('Placement is vague'));
+    if (vague >= 0) diagnostics.splice(vague, 1);
+    if (p.stuffing !== 'none' && p.stuffing !== 'unspecified') h.stuffing = p.stuffing;
+    diagnostics.push({ severity: 'info', code: 'assumption', line: seam.line, src: seam.src, message: `${p.name} has as many stitches as the open edge of ${h.name}, so it is joined on as a lid.` });
   }
   return { title, terms, materials, pieces: pieces.filter((p) => p.rows.length), seams, diagnostics, lines };
 }

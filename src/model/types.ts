@@ -86,7 +86,8 @@ export interface Seam {
   host: string; // host piece id
   rowA?: number; // host absolute rows
   rowB?: number;
-  hint: 'top' | 'side' | 'front' | 'below-eyes' | 'back' | 'bottom' | 'default';
+  /** lid = the piece's last round is joined stitch for stitch to the host's open last round (a coffee top). */
+  hint: 'top' | 'side' | 'front' | 'below-eyes' | 'back' | 'bottom' | 'lid' | 'default';
   spacingSts?: number;
   text: string;
   line: number;

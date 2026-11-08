@@ -20,7 +20,8 @@ export interface GNode {
 }
 
 export type EdgeKind = 'yarn' | 'into' | 'ring' | 'join' | 'seam';
-export interface GEdge { a: number; b: number; kind: EdgeKind; rest: number }
+/** stick: a patch stitch held this far out along the host's surface normal (appliqué), not a length. */
+export interface GEdge { a: number; b: number; kind: EdgeKind; rest: number; stick?: number }
 
 export interface GRow {
   piece: string;
@@ -60,7 +61,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
     for (let inst = 0; inst < piece.quantity; inst++) {
       const pi: PieceInstance = {
         piece, inst, rows: [], nodeIds: [],
-        stuffed: piece.stuffing === 'firm' ? 1 : piece.stuffing === 'light' ? 0.45 : 0,
+        stuffed: piece.stuffing === 'firm' ? 1 : piece.stuffing === 'light' ? 0.75 : 0,
         flat: piece.flatten || (piece.construction === 'rows') || (piece.stuffing === 'none' && piece.construction === 'joined-rounds'),
       };
       instances.push(pi);

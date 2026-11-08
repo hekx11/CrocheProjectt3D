@@ -29,7 +29,8 @@ export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
     .replace(/\b(in\s+)?(the\s+)?back\s+loops?(\s+only)?\b/g, ' blo ')
     .replace(/\bbl\s+only\b/g, ' blo ')
     .replace(/\b(in\s+)?(the\s+)?front\s+loops?(\s+only)?\b/g, ' flo ')
-    .replace(/\bfl\s+only\b/g, ' flo ');
+    .replace(/\bfl\s+only\b/g, ' flo ')
+    .replace(/\b(blo|flo)(\d)/g, '$1 $2'); // "BLO24sc"
 
   if (terms === 'UK') s = ukToUs(s);
 
@@ -75,6 +76,9 @@ const NUMBER_WORDS: Record<string, number> = {
 export function rewritePhrases(input: string): string {
   const words = Object.keys(NUMBER_WORDS).join('|');
   return input
+    // "(sc, inc) * repeat 6 times", "(7sc, dec)*2" → "(…) x 6"
+    .replace(/\)\s*\*\s*(?:repeat|rep)\s*(\d+)\s*times\b/g, ') x $1 ')
+    .replace(/\)\s*\*\s*(\d+)\b/g, ') x $1 ')
     .replace(/\bonce more\b/g, ' 1 more times ')
     .replace(/\btwice more\b/g, ' 2 more times ')
     .replace(/\bonce\b/g, ' 1 times ')

@@ -17,6 +17,8 @@ export interface SolverInput {
    * fabric is flat (increase rounds, straight sides), which is what rounds out a stuffed ball.
    */
   give?: Float32Array;
+  /** [patchNode, hostNode, offset]*: the patch node is held offset out along the host node's normal */
+  stick?: Float32Array;
   fixed?: Uint8Array; // 1 = do not move (virtual / pinned)
 }
 
@@ -37,6 +39,8 @@ export class Solver {
   private inst: SolverInput['instances'];
   private crease: Uint8Array;
   private pouchMask?: Uint8Array;
+  /** how hard stuffing rounds each node out: firmer stuffing rounds more (stuffed²) */
+  private roundWeight?: Float32Array;
   private stuffedMask: Uint8Array | null = null;
   energy = Infinity;
 
@@ -63,7 +67,8 @@ export class Solver {
     // on (a snout) keep their dome: smoothing an open edge would flatten it
     if (this.inst.some((pi) => pi.stuffed > 0)) {
       this.stuffedMask = new Uint8Array(N).fill(1);
-      for (const pi of this.inst) if (pi.stuffed > 0 && pi.closed !== false) for (const id of pi.nodeIds) this.stuffedMask[id] = input.fixed?.[id] ?? 0;
+      this.roundWeight = new Float32Array(N);
+      for (const pi of this.inst) if (pi.stuffed > 0 && pi.closed !== false) for (const id of pi.nodeIds) { this.stuffedMask[id] = input.fixed?.[id] ?? 0; this.roundWeight[id] = pi.stuffed * pi.stuffed; }
     }
     // mask of nodes NOT on a flattened pouch (ears): those get extra smoothing so the soft
     // double layer evens out instead of crumpling where its round end can't lie flat
@@ -75,7 +80,7 @@ export class Solver {
     for (const pi of this.inst) for (const id of pi.crease) this.crease[id] = 1;
   }
 
-  private laplace(lam: number, fixed?: Uint8Array) {
+  private laplace(lam: number, fixed?: Uint8Array, weight?: Float32Array) {
     const p = this.pos;
     const N = p.length / 3;
     const d = this.nrm; // reuse as scratch, overwritten by computeNormals later
@@ -85,7 +90,7 @@ export class Solver {
       let cx = 0, cy = 0, cz = 0;
       for (let j = s0; j < s1; j++) { const q = this.nbr[j] * 3; cx += p[q]; cy += p[q + 1]; cz += p[q + 2]; }
       const inv = 1 / (s1 - s0);
-      const l = this.crease[i] ? lam * 0.2 : lam;
+      const l = (this.crease[i] ? lam * 0.2 : lam) * (weight ? weight[i] : 1);
       d[i * 3] = (cx * inv - p[i * 3]) * l;
       d[i * 3 + 1] = (cy * inv - p[i * 3 + 1]) * l;
       d[i * 3 + 2] = (cz * inv - p[i * 3 + 2]) * l;
@@ -132,7 +137,7 @@ export class Solver {
       this.laplace(-lam * 1.04, fixed);
       // stuffing fills the fabric out evenly: on stuffed pieces, extra smoothing without the
       // shrink-back step rounds off flat ends and sharp rims (pressure keeps the volume up)
-      if (this.stuffedMask) this.laplace(ROUNDING, this.stuffedMask);
+      if (this.stuffedMask) this.laplace(ROUNDING, this.stuffedMask, this.roundWeight);
       if (this.pouchMask) { this.laplace(POUCH_SMOOTH, this.pouchMask); this.laplace(-POUCH_SMOOTH * 1.04, this.pouchMask); }
     }
     // 3. pressure for stuffed pieces, planarity for flat ones
@@ -165,6 +170,13 @@ export class Solver {
           const k = sd !== 0 && d * sd < 0 ? 0.6 : pi.side ? PUCKER : 0.3;
           p[i] -= d * nx * k; p[i + 1] -= d * ny * k; p[i + 2] -= d * nz * k;
         }
+      }
+    }
+    const st = this.input.stick;
+    if (st) {
+      for (let k = 0; k < st.length; k += 3) {
+        const a = st[k] * 3, b = st[k + 1] * 3, off = st[k + 2];
+        for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
       }
     }
     let maxMove = 0;

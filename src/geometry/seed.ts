@@ -197,6 +197,14 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
   const placed = new Set<PieceInstance>();
   const byPiece = (id: string) => g.instances.filter((i) => i.piece.id === id);
 
+  // a piece with a lid on is a container (a cup): stand it on its base, opening up
+  for (const seam of p.seams) {
+    if (seam.hint !== 'lid') continue;
+    for (const host of byPiece(seam.host)) {
+      const c = centroid(pos, host.nodeIds);
+      for (const id of host.nodeIds) { pos[id * 3 + 1] = 2 * c[1] - pos[id * 3 + 1]; pos[id * 3 + 2] = 2 * c[2] - pos[id * 3 + 2]; }
+    }
+  }
   for (const seam of p.seams) {
     const host = byPiece(seam.host)[0];
     if (!host) continue;
@@ -240,10 +248,14 @@ function attach(
 ) {
   const hostRows = host.rows.filter((r) => r.row > 0);
   if (!hostRows.length) return;
+  if (seam.hint === 'lid') { attachLid(g, host, pi, pos, seamEdges); return; }
+  if (isHandle(pi) && seam.rowA === undefined) { attachHandle(g, host, pi, pos, seamEdges, seam.hint === 'back' ? FRONT + Math.PI : FRONT + Math.PI / 2); return; }
   let ra = seam.rowA, rb = seam.rowB;
   if (ra === undefined) {
     if (seam.hint === 'top') { ra = 2; rb = Math.max(3, Math.round(hostRows.length * 0.3)); }
     else if (seam.hint === 'bottom') { ra = hostRows.length - 2; rb = hostRows.length; }
+    else if (/\blower\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.6); rb = Math.round(hostRows.length * 0.75); }
+    else if (/\bupper\b/i.test(seam.text)) { ra = Math.round(hostRows.length * 0.25); rb = Math.round(hostRows.length * 0.4); }
     else { const mid = Math.round(hostRows.length * 0.5); ra = mid - 1; rb = mid + 1; }
   }
   const region = host.rows.filter((r) => r.row >= ra! && r.row <= (rb ?? ra!));
@@ -270,6 +282,12 @@ function attach(
   if (seam.hint === 'top') normal = norm(add(normal, [0, 1.1, 0]));
   if (seam.hint === 'bottom') normal = norm(add(normal, [0, -1.1, 0]));
 
+  // a flat row-worked piece sewn onto the surface (a patch, a label, nori): lay it on, sew all round
+  if (pi.piece.construction === 'rows' && !pi.piece.flatten && pi.stuffed === 0 && /\bonto\b|\bon to\b|\bappliqu/i.test(seam.text)) {
+    attachPatch(g, pi, host.nodeIds.filter((id) => !g.nodes[id].virtual), target, normal, pos, seamEdges);
+    planes.set(pi, normal);
+    return;
+  }
   // the attached piece's open edge = its last row
   const edge = pi.rows[pi.rows.length - 1]?.nodes ?? [];
   if (!edge.length) return;
@@ -287,14 +305,19 @@ function attach(
       pos[id * 3 + 2] = Math.sign(th) * Math.min(R, w * 0.3);
     }
   }
-  const rot0 = rotator(opening, mul(normal, -1));
-  // roll around the attach normal so the flat side faces the front
-  const want = sub([0, 0, 1], mul(normal, dot([0, 0, 1], normal)));
+  // long flat flaps sewn to the sides (floppy dog ears) hang down along the head, flat side out
+  const hang = pi.piece.flatten && pi.stuffed === 0 && seam.hint === 'side' && pi.rows.length >= 6;
+  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : normal;
+  if (hang) planes.set(pi, normal);
+  const rot0 = rotator(opening, mul(dir, -1));
+  // roll around the attach direction so the flat side faces the front (or out, for a hanging flap)
+  const face: V = hang ? normal : [0, 0, 1];
+  const want = sub(face, mul(dir, dot(face, dir)));
   let rot = rot0;
   if (pi.piece.flatten && Math.hypot(...want) > 0.2) {
     const wantN = norm(want);
     const zNow = rot0([0, 0, 1]);
-    const zProj = norm(sub(zNow, mul(normal, dot(zNow, normal))));
+    const zProj = norm(sub(zNow, mul(dir, dot(zNow, dir))));
     const roll = rotator(zProj, wantN);
     rot = (v: V) => roll(rot0(v));
   }
@@ -314,5 +337,127 @@ function attach(
       if (dd < bd) { bd = dd; best = hid; }
     }
     seamEdges.push({ a: id, b: best, kind: 'seam', rest: Math.min(Math.max(Math.sqrt(bd), w * 0.25), w * 0.8) });
+  }
+}
+
+/**
+ * A lid: the piece's last round is joined stitch for stitch to the host's open last round. Lay the
+ * piece flat across the opening (its right side facing out) and pair the two rounds in order.
+ */
+function attachLid(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: Float32Array, seamEdges: GEdge[]) {
+  const rim = host.rows[host.rows.length - 1]?.nodes.filter((id) => !g.nodes[id].virtual) ?? [];
+  const edge = pi.rows[pi.rows.length - 1]?.nodes.filter((id) => !g.nodes[id].virtual) ?? [];
+  if (!rim.length || !edge.length) return;
+  const rimC = centroid(pos, rim);
+  const axis = norm(sub(rimC, centroid(pos, host.nodeIds))); // out of the opening
+  const pC = centroid(pos, pi.nodeIds), eC = centroid(pos, edge);
+  // the lid's centre should sit a little out of the opening; its edge on the rim
+  const rot = rotator(norm(sub(pC, eC)), axis);
+  // turn the lid so its first stitch lands next to the rim's first stitch
+  const e0 = rot(sub(get(pos, edge[0]), eC));
+  const r0 = sub(get(pos, rim[0]), rimC);
+  const proj = (v: V) => norm(sub(v, mul(axis, dot(v, axis))));
+  const spin = rotator(proj(e0), proj(r0));
+  for (const id of pi.nodeIds) pos.set(add(rimC, spin(rot(sub(get(pos, id), eC)))), id * 3);
+  const n = Math.min(rim.length, edge.length);
+  // both rounds must run the same way around the opening, or the join twists
+  const wind = (ids: number[], c: V) => Math.sign(dot(axis, cross(sub(get(pos, ids[0]), c), sub(get(pos, ids[Math.floor(ids.length / 4)]), c))));
+  const same = wind(edge, rimC) === wind(rim, rimC);
+  for (let i = 0; i < n; i++) {
+    const j = same ? i : (n - i) % n;
+    const a = edge[Math.floor((i * edge.length) / n)], b = rim[Math.floor((j * rim.length) / n)];
+    const d = sub(get(pos, a), get(pos, b));
+    seamEdges.push({ a, b, kind: 'seam', rest: Math.min(Math.sqrt(dot(d, d)), (g.nodes[b].w || 1) * 0.3) });
+  }
+}
+
+/** A thin unstuffed tube named like a handle or strap: both of its ends get sewn on. */
+function isHandle(pi: PieceInstance): boolean {
+  const counts = pi.rows.map((r) => r.nodes.length);
+  return /handle|strap/i.test(pi.piece.name) && pi.rows.length >= 4 && Math.max(...counts) <= 8 && pi.stuffed === 0;
+}
+
+/**
+ * A handle: bend the tube into a half circle standing out from the host's side (at angle th),
+ * centred on the host's middle row, and sew both ends on.
+ */
+function attachHandle(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: Float32Array, seamEdges: GEdge[], th: number) {
+  const rows = host.rows.filter((r) => r.row > 0 && r.nodes.length);
+  const tube = pi.rows.filter((r) => r.nodes.length);
+  if (rows.length < 2 || tube.length < 2) return;
+  const up = norm(sub(centroid(pos, rows[rows.length - 1].nodes), centroid(pos, rows[0].nodes)));
+  const hostC = centroid(pos, host.nodeIds);
+  const mid = rows[Math.floor(rows.length * 0.55)].nodes;
+  // the stitch of the middle row closest to the wanted side
+  let best = mid[0], bd = Infinity;
+  const want: V = [Math.cos(th), 0, Math.sin(th)];
+  for (const id of mid) {
+    const v = sub(get(pos, id), hostC);
+    const dd = -dot(norm(sub(v, mul(up, dot(v, up)))), want);
+    if (dd < bd) { bd = dd; best = id; }
+  }
+  const M = get(pos, best);
+  const out = norm(sub(sub(M, hostC), mul(up, dot(sub(M, hostC), up))));
+  const side = norm(cross(up, out));
+  let L = 0;
+  const hs = tube.map((r) => r.nodes.reduce((a, id) => a + g.nodes[id].h, 0) / r.nodes.length);
+  for (const h of hs) L += h;
+  const R = L / Math.PI;
+  let acc = 0;
+  tube.forEach((r, k) => {
+    acc += hs[k] * (k === 0 ? 0.5 : 1);
+    const a = Math.PI * Math.min(1, acc / L);
+    const c = add(M, add(mul(up, R * Math.cos(a)), mul(out, R * Math.sin(a) * 0.8)));
+    const t = norm(add(mul(up, -Math.sin(a)), mul(out, Math.cos(a) * 0.8)));
+    const nrm = norm(cross(t, side));
+    const rr = Math.max(0.5, r.nodes.reduce((s, id) => s + g.nodes[id].w, 0) / (2 * Math.PI));
+    r.nodes.forEach((id, j) => {
+      const ph = (2 * Math.PI * j) / r.nodes.length;
+      pos.set(add(c, add(mul(nrm, rr * Math.cos(ph)), mul(side, rr * Math.sin(ph)))), id * 3);
+    });
+  });
+  if (pi.centre !== undefined) pos.set(centroid(pos, tube[0].nodes), pi.centre * 3);
+  // sew each end ring to the nearest host stitches
+  const hostIds = host.nodeIds.filter((id) => !g.nodes[id].virtual);
+  for (const end of [tube[0].nodes, tube[tube.length - 1].nodes]) {
+    for (const id of end) {
+      const pv = get(pos, id);
+      let b = hostIds[0], d2 = Infinity;
+      for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+      seamEdges.push({ a: id, b, kind: 'seam', rest: Math.min(Math.max(Math.sqrt(d2), g.nodes[id].w * 0.25), g.nodes[id].w * 0.8) });
+    }
+  }
+}
+
+/** Lay a flat piece on the host's surface at target (facing out along normal) and sew its border down. */
+function attachPatch(g: StitchGraph, pi: PieceInstance, hostIds: number[], target: V, normal: V, pos: Float32Array, seamEdges: GEdge[]) {
+  const ids = pi.nodeIds.filter((id) => !g.nodes[id].virtual);
+  if (!ids.length) return;
+  const c = centroid(pos, ids);
+  const upT = sub([0, 1, 0], mul(normal, normal[1]));
+  const tU = Math.hypot(...upT) > 0.2 ? norm(upT) : norm(cross(normal, [1, 0, 0]));
+  const tS = norm(cross(tU, normal));
+  const lift = (g.nodes[ids[0]].h || 1) * 0.9; // clear of the host's stitch relief
+  for (const id of ids) {
+    const l = sub(get(pos, id), c); // rows are seeded flat in x (across) / y (rows)
+    pos.set(add(add(target, mul(normal, lift)), add(mul(tS, l[0]), mul(tU, l[1]))), id * 3);
+  }
+  const rows = pi.rows.filter((r) => r.nodes.length);
+  const border = new Set<number>();
+  for (const r of rows) { border.add(r.nodes[0]); border.add(r.nodes[r.nodes.length - 1]); }
+  for (const id of [...rows[0].nodes, ...rows[rows.length - 1].nodes]) border.add(id);
+  // the host surface may bulge under the patch: sew every border stitch to the host stitch below it
+  for (const id of border) {
+    const pv = sub(get(pos, id), mul(normal, lift));
+    let b = hostIds[0], d2 = Infinity;
+    for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+    seamEdges.push({ a: id, b, kind: 'seam', rest: (g.nodes[id].h || 1) * 0.5 });
+  }
+  // every stitch of the patch rides on the surface under it (stuffing can't push through it)
+  for (const id of ids) {
+    const pv = sub(get(pos, id), mul(normal, lift));
+    let b = hostIds[0], d2 = Infinity;
+    for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
+    seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: lift });
   }
 }

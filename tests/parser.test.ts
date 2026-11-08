@@ -97,3 +97,69 @@ describe('corpus fixtures', () => {
     expect(noWarnings(p)).toEqual([]);
   });
 });
+
+describe('pattern-sheet wordings (seen in shared amigurumi sheets)', () => {
+  it('reads "* repeat N times", "Round a - Round b", {N rounds} and BLO24sc', () => {
+    const p = parsePattern(`Test
+Part
+Round 1: 6sc in the magic ring (6)
+Round 2: 6inc (12)
+Round 3: (sc, inc) * repeat 6 times (18)
+Round 4: dec, (sc, dec)*2, 9sc (14)
+Round 5 - Round 7: 14sc (14) {3 rounds}
+Round 8: BLO14sc (14)
+`);
+    expect(counts(p)).toEqual([6, 12, 18, 14, 14, 14, 14, 14]);
+    expect(JSON.stringify(p.pieces[0].rows[7].ops)).toContain('"loop":"BLO"');
+    expect(noWarnings(p)).toEqual([]);
+  });
+  it('reads an unlabelled single round, "make two" and "Use … yarn"', () => {
+    const p = parsePattern(`Test
+Head
+Rnd 1: 6 sc in MR (6)
+Rnd 2: inc x6 (12)
+Rnds 3-4: sc around (12)
+Fasten off.
+
+Ear (make two)
+Use black yarn
+6hdc in the magic ring (6)
+Fasten off. Sew the ear between Round 2 and Round 3 of the head.
+`);
+    expect(p.pieces.map((q) => [q.name, q.quantity, q.rows.length])).toEqual([['Head', 1, 4], ['Ear', 2, 1]]);
+    expect(p.seams.map((s) => [s.rowA, s.rowB])).toEqual([[2, 3]]);
+  });
+  it('reads "mr, 6sc", a closing slst, "Row 1: Ch 8" and "ch 1, turn"', () => {
+    const p = parsePattern(`Test
+Cup
+R1: mr, 6sc (6)
+R2: 6inc (12)
+R3-R4: 12sc, slst (12)
+Fasten off.
+
+Patch
+Row 1: Ch 8
+Rows 2-3: 7 sc, ch 1, turn
+Fasten off. Sew the patch to the front of the cup.
+`);
+    expect(counts(p)).toEqual([6, 12, 12, 12]);
+    expect(counts(p, 1)).toEqual([7, 7]);
+    expect(p.pieces[1].start).toEqual({ kind: 'chain', n: 8, ring: false });
+  });
+  it('joins a piece with as many stitches as an open edge on as a lid', () => {
+    const p = parsePattern(`Test
+Cup
+R1: mr, 6sc (6)
+R2: 6inc (12)
+R3-R5: 12sc (12)
+Don't cut the yarn
+
+Coffee
+R1: mr, 6sc (6)
+R2: 6inc, slst (12)
+Fasten off. Attach the coffee to the cup, joining through the back loop of the coffee. Stuff it before finishing the round.
+`);
+    expect(p.seams.map((s) => s.hint)).toEqual(['lid']);
+    expect(p.pieces.map((q) => q.stuffing)).toEqual(['firm', 'firm']);
+  });
+});

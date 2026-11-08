@@ -87,11 +87,16 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
   take(/(?:add )?stuff(?:ing|ed)?\b[^,]*/, (m) => (res.stuffing = /light/.test(m[0]) ? 'light' : 'firm'));
   take(/(?:,\s*)?(?:ending with\s+)?(?:join(?:ing)?\s+(?:with\s+)?(?:a\s+)?)?slst\s+(?:in|to)\s+(?:the\s+)?(?:top|base|first|beg|beginning)\b[^,;]*/, () => (res.join = true));
   take(/\bjoin(?:ing)?\b(?:\s+with\s+(?:a\s+)?slst)?[^,;]*/, () => (res.join = true));
+  // "7 sc, ch 1, turn": the chain at the end is the next row's turning chain, not a stitch
+  take(/[,;]?\s*ch\s*\d?\s*,?\s*turn\b/, () => (res.turn = true));
   while (take(/\bturn\b/, () => (res.turn = true)));
+  // "mr, 6sc": the magic ring is already the start; "36sc, slst": the slip stitch only closes the round
+  take(/^\s*mr\s*[,:]\s*(?=\d)/, () => {});
+  take(/[,;]\s*slst\s*$/, () => {});
 
   // --- "working in back loops only, …" sets the loop for the whole row -------
   let rowLoop: Loop = 'both';
-  take(/^\s*(?:working\s+|work\s+)?(blo|flo)\b\s*(?:throughout|for this (?:round|row|rnd))?\s*[,:]/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
+  take(/^\s*(?:working\s+|work\s+)?(blo|flo)\b\s*(?:throughout|for this (?:round|row|rnd))?\s*(?:[,:]|(?=\d))/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
   take(/[,;]?\s*(?:working\s+|work\s+)(blo|flo)\s*$/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
 
   // --- "decrease 6 sts evenly", "6 inc evenly around", "dec evenly 6 times" --

@@ -42,9 +42,16 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     }
   }
 
-  const all = [...graph.edges, ...s.seamEdges];
+  const all = [...graph.edges, ...s.seamEdges.filter((e) => e.stick === undefined)];
+  const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
+  const stick = new Float32Array(sticks.length * 3);
+  sticks.forEach((e, i) => stick.set([e.a, e.b, e.stick!], i * 3));
   const stuffedNode = new Uint8Array(graph.nodes.length);
   for (const pi of graph.instances) if (pi.stuffed > 0) for (const id of pi.nodeIds) stuffedNode[id] = 1;
+  // the open edge of a stuffed piece is sewn to something (a head, a lid): it keeps its length
+  for (const pi of graph.instances) {
+    if (pi.stuffed > 0 && pi.piece.finish !== 'closed') for (const id of pi.rows[pi.rows.length - 1]?.nodes ?? []) stuffedNode[id] = 0;
+  }
   const edges = new Float32Array(all.length * 5);
   const give = new Float32Array(all.length);
   all.forEach((e, i) => {
@@ -86,6 +93,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     smoothing: Math.min(0.35, 0.08 * sizing.stiffness),
     fixed,
     give,
+    stick,
   };
   return { pattern, sizing, graph, tris, triPiece, markers: s.markers, solverInput };
 }
