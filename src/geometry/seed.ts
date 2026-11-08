@@ -277,8 +277,15 @@ function attach(
   const pC = centroid(pos, pi.nodeIds);
   const opening = norm(sub(eC, pC)); // direction the opening faces
   // flattened pieces (e.g. ears): squash the cup in its local frame first
+  // Fold each ring flat along x, keeping its length: a ring of radius R becomes two layers πR wide
+  // (squashing z alone would shorten every ring and the extra yarn then crumples).
   if (pi.piece.flatten) {
-    for (const id of pi.nodeIds) pos[id * 3 + 2] = pos[id * 3 + 2] * 0.18;
+    for (const id of pi.nodeIds) {
+      const x = pos[id * 3], z = pos[id * 3 + 2];
+      const R = Math.hypot(x, z), th = Math.atan2(z, x);
+      pos[id * 3] = R * (Math.PI / 2 - Math.abs(th));
+      pos[id * 3 + 2] = Math.sign(th) * Math.min(R, w * 0.3);
+    }
   }
   const rot0 = rotator(opening, mul(normal, -1));
   // roll around the attach normal so the flat side faces the front
