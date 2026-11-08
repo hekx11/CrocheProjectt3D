@@ -27,7 +27,7 @@ Everything runs in your browser: no server, no upload, no account.
   Your tension (tight, normal or loose) is taken into account, and the yarn (chenille, cotton, wool…) changes how it looks.
 - **PDF import.** The text is read with pdf.js, the row-number and instruction columns are paired back up, and you review the result before it is used.
 - **Clarify a line yourself.** Add `=> <short syntax>` after a line the parser can't read, e.g. `Make the round loosely as before => 18 slst blo loose`.
-- **Or ask AI (optional, free).** On a flagged line, *Ask AI* has a small open model (Qwen 3.5) propose the `=> …` short syntax. The app re-parses it and checks the stitch count before you choose to use it. The model runs on your own device in the browser with [WebLLM](https://github.com/mlc-ai/web-llm) (WebGPU). It's downloaded once (about 1.2 GB), cached by the browser and then works offline. No account, no key, nothing sent anywhere.
+- **Written-out instructions, no AI.** Sentences like "decrease 6 sts evenly", "sc in each st until 2 sts remain", "sc in each of the next 3, then inc; repeat 5 more times", "(sc, ch 2, sc) in first st" or "repeat rnd 6" are read by rules: a phrase dictionary, arithmetic on the previous row's count, and row references. When the stated count doesn't match, the app tries the other ways the line can be read (the scope of `x6`, "repeat N times" as N or N+1, counts that include chains) and keeps the readings that add up. One match is used and flagged; several are offered to pick from. Words the parser can't use are always flagged, never dropped silently.
 
 ## Develop
 
