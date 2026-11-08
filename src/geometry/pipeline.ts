@@ -16,6 +16,8 @@ export interface Model {
 }
 
 const STIFF = { yarn: 1, into: 1, ring: 0.6, join: 0.7, seam: 0.5 } as const;
+/** How hard stuffed yarn resists stretching (1 = rigid). Lower = looser yarn, rounder stuffed shapes. */
+const STRETCH_GIVE = 0.3;
 
 /** Parse result → sized stitch graph → seeded positions → solver input. */
 export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<string, [number, number, number]>): Model {
@@ -44,7 +46,10 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
   const stuffedNode = new Uint8Array(graph.nodes.length);
   for (const pi of graph.instances) if (pi.stuffed > 0) for (const id of pi.nodeIds) stuffedNode[id] = 1;
   const edges = new Float32Array(all.length * 5);
+  const give = new Float32Array(all.length);
   all.forEach((e, i) => {
+    // stuffed fabric: the yarn gives a little under pressure instead of staying fully stretched
+    give[i] = (e.kind === 'yarn' || e.kind === 'into') && stuffedNode[e.a] && stuffedNode[e.b] ? STRETCH_GIVE : 1;
     const slack = (e.kind === 'yarn' || e.kind === 'into') && stuffedNode[e.a] && stuffedNode[e.b] ? 0.7 : 1;
     edges.set([e.a, e.b, e.rest, STIFF[e.kind], slack], i * 5);
   });
@@ -67,6 +72,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     pos: s.pos, edges, tris, triPiece, instances,
     smoothing: Math.min(0.35, 0.08 * sizing.stiffness),
     fixed,
+    give,
   };
   return { pattern, sizing, graph, tris, triPiece, markers: s.markers, solverInput };
 }
