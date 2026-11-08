@@ -34,20 +34,26 @@ export interface YarnLook {
 export const YARN_LOOKS: Record<string, YarnLook> = {
   // crisp, matte, tightly plied, clearly defined stitches
   cotton: {
-    plies: 4, twist: 2.2, plyDepth: 0.3, legRadius: 0.21, blur: 1, pile: 0.02,
-    normalStrength: 1.1, cavity: 0.65, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5, relief: 0.26,
+    plies: 4, twist: 2.0, plyDepth: 0.15, legRadius: 0.21, blur: 1, pile: 0.02,
+    normalStrength: 1.5, cavity: 0.75, roughness: 0.92, sheen: 0.05, sheenRoughness: 0.8, sheenTint: 0.5, relief: 0.2,
     shells: { count: 0, length: 0, kind: 'none', density: 0, opacity: 1 },
+  },
+  // milk cotton: soft, plump, matte with a faint sheen and a light fuzz (very common for amigurumi)
+  'milk cotton': {
+    plies: 4, twist: 1.6, plyDepth: 0.08, legRadius: 0.22, blur: 2, pile: 0.05,
+    normalStrength: 1.4, cavity: 0.7, roughness: 0.85, sheen: 0.35, sheenRoughness: 0.6, sheenTint: 0.45, relief: 0.22,
+    shells: { count: 2, length: 0.06, kind: 'fuzz', density: 0.2, opacity: 1 },
   },
   // plied, slightly soft, small sheen
   acrylic: {
-    plies: 3, twist: 1.8, plyDepth: 0.22, legRadius: 0.2, blur: 1, pile: 0.04,
-    normalStrength: 1.0, cavity: 0.6, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45, relief: 0.26,
+    plies: 3, twist: 1.6, plyDepth: 0.1, legRadius: 0.2, blur: 1, pile: 0.04,
+    normalStrength: 1.4, cavity: 0.75, roughness: 0.78, sheen: 0.3, sheenRoughness: 0.5, sheenTint: 0.45, relief: 0.2,
     shells: { count: 2, length: 0.05, kind: 'fuzz', density: 0.12, opacity: 1 },
   },
   // soft, a little fuzzy, matte with a soft rim
   wool: {
-    plies: 2, twist: 1.8, plyDepth: 0.3, legRadius: 0.19, blur: 2, pile: 0.08,
-    normalStrength: 0.9, cavity: 0.55, roughness: 0.95, sheen: 0.4, sheenRoughness: 0.7, sheenTint: 0.4, relief: 0.24,
+    plies: 2, twist: 1.4, plyDepth: 0.08, legRadius: 0.19, blur: 2, pile: 0.08,
+    normalStrength: 1.2, cavity: 0.7, roughness: 0.95, sheen: 0.4, sheenRoughness: 0.7, sheenTint: 0.4, relief: 0.2,
     shells: { count: 4, length: 0.12, kind: 'fuzz', density: 0.35, opacity: 1 },
   },
   // fat, plush, unplied, strong sheen; stitches read as soft puffs
@@ -113,32 +119,40 @@ function tube(u: number, v: number, ax: number, ay: number, bx: number, by: numb
 interface Cell { cu: number; cv: number; scale: number; tilt: number }
 
 /**
- * One sc as seen on the right side: a "V" of two plump, slanted loops of plied yarn meeting at the
- * bottom, with a small dark gap between the loops and a clear groove to the next row. Each loop is
- * an elongated dome whose surface carries the ply twist.
+ * One sc, built from how the stitch is formed (spec/yarn-tension-texture.md §3.1):
+ *  - the hook goes under the top "V" of the stitch below, a loop is pulled up and closed off: the
+ *    pulled-up loop is what you see on the right side, as two legs (a "v") whose point sits where
+ *    the hook went into the row below and whose arms reach up to this stitch's own top loops;
+ *  - in a spiral the stitch sits on the one below, shifted a little in the working direction, so
+ *    the v is skewed: one leg leans hard, the other stands almost upright (that's the "grain" look);
+ *  - the top loops (front + back loop) run along the top edge like a chain; on the right side only
+ *    the front loop peeks out as a thin bar under the next row's legs;
+ *  - amigurumi is worked tight: legs press against the neighbouring legs and the next row, leaving
+ *    only small real holes where four stitches meet (stuffing shows dark through them).
  */
 function vStitch(look: YarnLook, lu: number, lv: number): number {
-  const half = 0.15 + look.legRadius * 0.35; // loop half-width across
-  const len = 0.62; // loop half-length along (loops reach into the next row, as real ones do)
-  let best = 0.12; // the fabric behind, just visible in the gaps
-  for (const side of [-1, 1]) {
-    // loop centre and slant: tops lean outward, bottoms meet near the middle
-    const cx = side * 0.19, cy = 0;
-    const ang = side * 0.5;
-    const x = lu - cx, y = lv - cy;
+  const d = 0.26 + look.legRadius * 0.15; // leg half-thickness (yarn is fat compared with the stitch)
+  const len = 0.64; // leg half-length: the legs span the whole row height
+  const skew = -0.45; // spiral slant
+  let best = 0;
+  // the two legs of the v: point at the bottom, arms up and out, plus the spiral skew
+  for (const [cx, ang] of [[-0.21, skew - 0.32], [0.21, skew + 0.32]] as const) {
+    const x = lu - cx, y = lv - 0.02;
     const along = x * Math.sin(ang) + y * Math.cos(ang);
     const across = x * Math.cos(ang) - y * Math.sin(ang);
-    const a = along / len, b = across / half;
+    const a = along / len, b = across / d;
     const q2 = a * a + b * b;
     if (q2 >= 1) continue;
-    let h = Math.pow(1 - q2, 0.5);
+    let h = Math.pow(1 - q2, 0.45);
     if (look.plies > 0) {
-      // plies wind diagonally around the loop
       const ph = 0.5 - 0.5 * Math.cos(2 * Math.PI * (look.plies * 0.5 * (b + 1) + look.twist * 0.6 * a));
       h *= 1 - look.plyDepth * ph;
     }
     best = Math.max(best, h);
   }
+  // front loop of this stitch's top, a thin bar along the top edge, mostly tucked behind
+  const bar = tube(lu, lv, -0.55, 0.47, 0.55, 0.47, 0.1);
+  if (bar) best = Math.max(best, bar[0] * 0.55);
   return best;
 }
 
@@ -164,7 +178,7 @@ export function stitchHeight(look: YarnLook): Float32Array {
   for (let j = 0; j < TR; j++) {
     for (let i = 0; i < TS; i++) {
       cells.push({
-        cu: i + 0.5 + (j % 2) * 0.5 + (rand() - 0.5) * 0.14,
+        cu: i + 0.5 + (look.plies > 0 ? 0 : (j % 2) * 0.5) + (rand() - 0.5) * 0.12,
         cv: j + 0.5 + (rand() - 0.5) * 0.06,
         scale: 1 + (rand() - 0.5) * 0.16,
         // spiral rounds make the stitches lean a little
@@ -193,7 +207,7 @@ export function stitchHeight(look: YarnLook): Float32Array {
     }
   }
   if (look.pile > 0) {
-    for (let i = 0; i < hgt.length; i++) hgt[i] += (rand() - 0.5) * look.pile * (0.3 + hgt[i]);
+    for (let i = 0; i < hgt.length; i++) hgt[i] += (rand() - 0.5) * look.pile * hgt[i]; // fibre noise only on yarn, not in the holes
   }
   for (let pass = 0; pass < look.blur; pass++) blur(hgt);
   return hgt;
@@ -258,7 +272,13 @@ export function yarnTextures(fiber: string): YarnTextures {
       nrm[i + 1] = ((-dy / l) * 0.5 + 0.5) * 255;
       nrm[i + 2] = ((1 / l) * 0.5 + 0.5) * 255;
       nrm[i + 3] = 255;
-      const c = 1 - look.cavity * (1 - Math.pow(Math.max(0, at(x, y)), 0.6));
+      // only the real gaps go dark; the loops themselves stay lit right to their edges
+      // plied stitches: only the real holes go dark, loops stay lit to their edges;
+      // plush puffs: shade gradually toward the crevices so each bump reads
+      const hv = Math.max(0, Math.min(1, at(x, y) / 0.35));
+      const c = look.plies > 0
+        ? 1 - look.cavity * (1 - hv * hv * (3 - 2 * hv))
+        : 1 - look.cavity * (1 - Math.pow(Math.max(0, at(x, y)), 0.6));
       cav[i] = cav[i + 1] = cav[i + 2] = Math.round(Math.max(0, Math.min(1, c)) * 255);
       cav[i + 3] = 255;
     }

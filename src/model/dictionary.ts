@@ -36,6 +36,7 @@ export const WEIGHT_NAMES: [RegExp, number][] = [
 
 /** Fiber presets: stiffness factor, sheen, roughness, fuzz (softens stitch texture). */
 export const FIBERS: Record<string, { stiffness: number; sheen: number; roughness: number; fuzz: number }> = {
+  'milk cotton': { stiffness: 1.0, sheen: 0.3, roughness: 0.8, fuzz: 0.3 },
   cotton: { stiffness: 1.2, sheen: 0.05, roughness: 0.85, fuzz: 0.1 },
   acrylic: { stiffness: 1.0, sheen: 0.2, roughness: 0.75, fuzz: 0.25 },
   wool: { stiffness: 0.9, sheen: 0.35, roughness: 0.9, fuzz: 0.45 },
