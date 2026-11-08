@@ -1,0 +1,13 @@
+Ball
+Hook: 3.5 mm, worsted (weight 4) cotton
+
+Rnd 1: 6 sc in MR (6)
+Rnd 2: inc x6 (12)
+Rnd 3: (sc, inc) x6 (18)
+Rnd 4: (2 sc, inc) x6 (24)
+Rnds 5-8: sc around (24)
+Rnd 9: (2 sc, dec) x6 (18)
+Stuff firmly.
+Rnd 10: (sc, dec) x6 (12)
+Rnd 11: dec x6 (6)
+Fasten off and weave in ends.

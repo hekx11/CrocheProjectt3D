@@ -1,0 +1,8 @@
+Flower
+Hook: 4 mm
+
+Ch 4 and join with a sl st to the first ch to form a ring.
+Round 1: Ch 3 (counts as first dc), work 11 dc into the ring, then join with a sl st to the top of the beginning ch-3. (12 dc)
+Round 2: Ch 3 (counts as dc), dc in same st, 2 dc in each st around, join with sl st to top of ch-3. (24 dc)
+Round 3: *Ch 3, skip next st, sl st in next st; repeat from * around, ending with sl st in base of first ch-3. (12 ch-3 loops)
+Fasten off.
