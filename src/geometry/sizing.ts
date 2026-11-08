@@ -22,6 +22,11 @@ export interface Sizing {
   roughness: number;
 }
 
+/** Thickness of the fabric (mm). The mesh is the fabric's mid-surface, so this is what a flat piece adds edge-on. */
+export function fabricThickness(sz: Pick<Sizing, 'h'>): number {
+  return 0.6 * sz.h;
+}
+
 const TENSION_DELTA = { tight: -0.75, normal: 0, loose: 0.5 };
 
 function mm(m: { value: number; unit: string }): number {
@@ -106,7 +111,7 @@ function fitFinishedSize(p: Pattern, ratio: number): Omit<Sizing, 'fiber' | 'sti
     let lo = 0.5, hi = 60;
     for (let it = 0; it < 60; it++) {
       h = (lo + hi) / 2;
-      w = (Math.PI * (D - 0.6 * h)) / n;
+      w = (Math.PI * (D - fabricThickness({ h }))) / n;
       let len = 0;
       for (let i = 0; i < counts.length; i++) {
         const dR = i === 0 ? (counts[0] * w) / (2 * Math.PI) : ((counts[i] - counts[i - 1]) * w) / (2 * Math.PI);
