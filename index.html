@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Type or import a crochet pattern and watch it take shape in 3D as you write." />
+    <title>Crochet 3D</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='26' fill='%23e8a87c'/%3E%3Cpath d='M12 26c12 6 28 6 40 0M10 36c13 7 31 7 44 0M16 46c10 5 22 5 32 0' stroke='%23b86a3d' stroke-width='3' fill='none'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo" aria-hidden="true"></span>Crochet 3D</div>
+      <nav class="actions">
+        <label class="select">
+          <span class="sr-only">Examples</span>
+          <select id="examples" title="Load an example pattern">
+            <option value="">Examples…</option>
+          </select>
+        </label>
+        <button id="btn-pdf" title="Import a pattern PDF (stays on your device)">Import PDF</button>
+        <button id="btn-open" title="Open a pattern text file">Open</button>
+        <button id="btn-save" title="Download the pattern text">Save</button>
+        <button id="btn-materials" aria-expanded="false" title="Yarn, hook, tension and gauge">Materials</button>
+        <input type="file" id="file-pdf" accept="application/pdf" hidden />
+        <input type="file" id="file-txt" accept=".txt,.md,text/plain" hidden />
+      </nav>
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="editor" aria-selected="true">Pattern</button>
+        <button role="tab" data-tab="view" aria-selected="false">3D</button>
+      </div>
+    </header>
+
+    <main class="layout" data-active="editor">
+      <section class="pane pane-editor" aria-label="Pattern editor">
+        <div id="editor" class="editor"></div>
+        <details class="outline" open>
+          <summary>Outline <span id="outline-summary" class="muted"></span></summary>
+          <div id="outline"></div>
+        </details>
+      </section>
+      <section class="pane pane-view" aria-label="3D preview">
+        <div id="viewport" class="viewport"></div>
+        <div class="hud">
+          <div id="size" class="size"></div>
+          <div id="size-source" class="muted small"></div>
+        </div>
+        <div class="hud-right">
+          <span id="solving" class="pill" hidden>shaping…</span>
+          <button id="btn-reset" class="ghost" title="Reset view">Reset view</button>
+        </div>
+        <div class="hint muted small">Drag to rotate · scroll to zoom · click the model to find its line</div>
+      </section>
+    </main>
+
+    <aside id="materials" class="panel" hidden aria-label="Materials">
+      <h2>Materials</h2>
+      <p class="muted small">Pre-filled from the pattern. Changes apply to the 3D size and look.</p>
+      <label>Your tension
+        <select id="m-tension">
+          <option value="tight">Tight</option>
+          <option value="normal" selected>Normal</option>
+          <option value="loose">Loose</option>
+        </select>
+      </label>
+      <label>Hook (mm) <input id="m-hook" type="number" step="0.25" min="1" max="25" placeholder="from pattern" /></label>
+      <label>Yarn weight
+        <select id="m-weight">
+          <option value="">from pattern</option>
+          <option value="0">0 Lace</option><option value="1">1 Super fine</option><option value="2">2 Fine</option>
+          <option value="3">3 Light / DK</option><option value="4">4 Medium / worsted</option><option value="5">5 Bulky</option>
+          <option value="6">6 Super bulky</option><option value="7">7 Jumbo</option>
+        </select>
+      </label>
+      <label>Fiber
+        <select id="m-fiber">
+          <option value="">from pattern</option>
+          <option>cotton</option><option>acrylic</option><option>wool</option><option>chenille</option><option>velvet</option><option>mohair</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>My gauge (one sc)</legend>
+        <label>width mm <input id="m-w" type="number" step="0.1" min="1" max="40" /></label>
+        <label>height mm <input id="m-h" type="number" step="0.1" min="1" max="40" /></label>
+      </fieldset>
+      <div class="row-end"><button id="m-reset" class="ghost">Use pattern values</button><button id="m-close">Done</button></div>
+    </aside>
+
+    <dialog id="pdf-dialog" class="pdf-dialog">
+      <form method="dialog">
+        <h2>Review imported pattern</h2>
+        <p class="muted small">Read on your device. Nothing was uploaded. Fix anything that came out wrong, then use the text.</p>
+        <div class="pdf-grid">
+          <div class="pdf-page"><canvas id="pdf-canvas"></canvas></div>
+          <div class="pdf-text">
+            <ul id="pdf-warnings" class="warnings"></ul>
+            <textarea id="pdf-textarea" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <div class="row-end">
+          <button value="cancel" class="ghost">Cancel</button>
+          <button id="pdf-use" value="use">Use this text</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
