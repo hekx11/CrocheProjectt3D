@@ -83,6 +83,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       let prevWork: number[] = []; // node ids in the order the next row works into them
       let ringMode = false;
       let lastYarnNode = -1;
+      let shortRows = false; // a round piece has turned: unworked stitches are worked later
       if (piece.base) {
         // worked into other pieces: their rows (already built) and any chains between them
         let chain: number[] = [];
@@ -174,7 +175,17 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         if (row.nodes.length) {
           pi.rows.push(row);
           prevRow = row;
-          prevWork = piece.construction === 'rows' ? [...row.nodes].reverse() : [...row.nodes];
+          if (piece.construction === 'rows') prevWork = [...row.nodes].reverse();
+          else {
+            // a round piece with short rows (hair worked in rows across the back, then round
+            // again): stitches this row left unworked come next, after its own stitches. Turned,
+            // the work comes back across this row and on past where it started.
+            let used = 0;
+            for (const st of ex.stitches) for (const t of st.targets) used = Math.max(used, t + 1);
+            if (r.turn) shortRows = true;
+            const rest = ringMode || !shortRows ? [] : prevWork.slice(Math.min(used, prevWork.length));
+            prevWork = r.turn ? [...row.nodes].reverse().concat(rest.reverse()) : [...row.nodes, ...rest];
+          }
           ringMode = false;
         }
       }
