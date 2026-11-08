@@ -126,6 +126,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         pi.centre = add({ key: `${piece.name}:${inst}:ring`, piece: piece.id, inst, row: 0, idx: 0, u: 0, type: 'ring', loop: 'both', w: 0, h: 0, color: firstColor, line: piece.rows[0]?.line ?? -1, virtual: true });
       }
 
+      const edgeStart = edges.length;
       for (const r of piece.rows) {
         if (r.skipGeometry) continue;
         const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode);
@@ -167,6 +168,14 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         for (let i = 0; i < row.anchors.length; i++) if (row.anchors[i] < 0 && i > 0) row.anchors[i] = row.anchors[i - 1];
         const firstReal = row.anchors.findIndex((a) => a >= 0);
         for (let i = 0; i < firstReal; i++) row.anchors[i] = row.anchors[firstReal];
+        // chains inside a row worked into the one below (ch-2 scallops, ch-3 loops, picots) stay
+        // close to it: tie each to the stitch below where it is made, loosely, or nothing holds
+        // them and they hang off the edge like spikes
+        if (prevRow) ex.stitches.forEach((st, i) => {
+          if (st.type !== 'ch' || st.targets.length || row.anchors[i] < 0) return;
+          const below = prevRow!.nodes[row.anchors[i]];
+          if (below !== undefined && !nodes[below].virtual) edges.push({ a: below, b: row.nodes[i], kind: 'into', rest: sz.h * 0.7 });
+        });
         if (r.join && row.nodes.length > 2) edges.push({ a: row.nodes[row.nodes.length - 1], b: row.nodes[0], kind: 'join', rest: sz.w });
         // closed rounds: also connect last and first so the ring closes (spiral continues anyway)
         if (row.closed && !r.join && row.nodes.length > 2 && !ringMode) {
@@ -189,6 +198,18 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
           }
           ringMode = false;
         }
+      }
+      // a stuffed neck: rounds much narrower than the stuffed parts on both sides of them squash
+      // down between the two (a head sits on the shoulders, not up on a stalk)
+      if (pi.stuffed > 0) {
+        const rs = pi.rows.filter((q) => q.row > 0);
+        const neck = new Set<number>();
+        rs.forEach((q, i) => {
+          const before = Math.max(0, ...rs.slice(Math.max(0, i - 8), i).map((x) => x.nodes.length));
+          const after = Math.max(0, ...rs.slice(i + 1, i + 9).map((x) => x.nodes.length));
+          if (q.nodes.length <= before * 0.5 && q.nodes.length <= after * 0.5) for (const id of q.nodes) neck.add(id);
+        });
+        if (neck.size) for (let e = edgeStart; e < edges.length; e++) if (edges[e].kind === 'into' && neck.has(edges[e].b)) edges[e].rest *= 0.55;
       }
     }
   }

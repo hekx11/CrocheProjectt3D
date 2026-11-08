@@ -242,6 +242,7 @@ export function parsePattern(text: string): Pattern {
   let pendingStart: PieceDef['start'] | null = null;
   /** "Pull up a loop … in round 13 at the back of the body": where a chain strand starts. */
   let pendingLoop: { host: PieceDef; label?: number; back: boolean } | null = null;
+  const unnamedHost = new Map<Seam, string>();
   let yarnId = defaultYarn.id;
   let finished = false;
   let lastLabel: number | undefined;
@@ -678,7 +679,8 @@ export function parsePattern(text: string): Pattern {
         const lead = prep ? prep[0].length : 0;
         const cut = /,|;|\b(?:just|right)\b|\b(?:in )?between\b|\bnext to\b|\bbelow\b|\babove\b|\bunder(?:neath)?\b|\bbeside\b/.exec(hostText.slice(lead));
         const primary = cut ? hostText.slice(0, lead + cut.index) : hostText;
-        const host = namedPiece(primary, pieces, p) ?? namedPiece(hostText, pieces, p) ?? mainPiece(pieces, p);
+        const named = namedPiece(primary, pieces, p) ?? namedPiece(hostText, pieces, p);
+        const host = named ?? mainPiece(pieces, p);
         if (host) {
           const hint: Seam['hint'] = wrap ? 'wrap' : /\b(pom ?pom|antenna|bobble)/.test(p.name.toLowerCase()) && !/\b(side|front|back|bottom)\b/.test(s) ? 'top' : /below (the )?eyes/.test(s) ? 'below-eyes' : /\btop\b/.test(s) ? 'top' : /\bsides?\b/.test(s) ? 'side' : /\bfront\b/.test(s) ? 'front' : /\bback\b(?!\s+loops?)/.test(s) ? 'back' : /\bbottom\b/.test(s) ? 'bottom' : 'default';
           const seam: Seam = { piece: p.id, host: host.id, hint, text: snt.text.trim(), line: li, src, spacingSts: spacing ? +(spacing[1] ?? spacing[2]) : undefined };
@@ -690,6 +692,9 @@ export function parsePattern(text: string): Pattern {
           const dup = seams.find((q) => q.piece === seam.piece && q.host === seam.host);
           if (dup) { if (dup.rowA === undefined && seam.rowA !== undefined) Object.assign(dup, { rowA: seam.rowA, rowB: seam.rowB }); if (dup.hint === 'default' || seam.hint === 'wrap') { dup.hint = seam.hint; dup.wrapAt = seam.wrapAt; } continue; }
           seams.push(seam);
+          // no piece by that name yet ("sew the flowers on the bouquet" before the bouquet's
+          // instructions): look again once every piece is known
+          if (!named) unnamedHost.set(seam, primary);
           if (p.finish === 'open' ) p.finish = 'open-with-tail';
         } else diagnostics.push({ severity: 'warning', code: 'unresolved-reference', line: li, src, message: 'No other piece to sew this to.' });
         continue;
@@ -759,6 +764,11 @@ export function parsePattern(text: string): Pattern {
     if (vague >= 0) diagnostics.splice(vague, 1);
     if (p.stuffing !== 'none' && p.stuffing !== 'unspecified') h.stuffing = p.stuffing;
     diagnostics.push({ severity: 'info', code: 'assumption', line: seam.line, src: seam.src, message: `${p.name} has as many stitches as the open edge of ${h.name}, so it is joined on as a lid.` });
+  }
+  for (const [seam, text] of unnamedHost) {
+    const subj = pieces.find((q) => q.id === seam.piece);
+    const h = subj && seam.rowA === undefined ? namedPiece(text, pieces, subj) : undefined;
+    if (h && h.id !== seam.piece) seam.host = h.id;
   }
   return { title, terms, materials, pieces: pieces.filter((p) => p.rows.length || p.strap), seams, diagnostics, lines };
 }

@@ -57,7 +57,7 @@ export const COLORS: Record<string, string> = {
   skin: '#f3d2b5', 'skin color': '#f3d2b5', 'skin colour': '#f3d2b5', flesh: '#f3d2b5', nude: '#ecc9a8',
   camel: '#c8955a', mustard: '#d9a62a', 'dark yellow': '#e0a92a', 'pale yellow': '#f6e08a', 'light yellow': '#f6e08a',
   'dark blue': '#273f73', midnight: '#232a4a', 'light gray': '#c9c9c9', 'light grey': '#c9c9c9', 'dark gray': '#5b5f63', 'dark grey': '#5b5f63',
-  'light brown': '#b5865a', 'dark brown': '#5a3518', 'light pink': '#f7c6d6', 'dark green': '#2f6b3a', 'light green': '#a6d38a',
+  'light brown': '#b5865a', 'dark brown': '#6b4024', 'light pink': '#f7c6d6', 'dark green': '#2f6b3a', 'light green': '#a6d38a',
   burgundy: '#7b1f2e', teal: '#2a8c8c', turquoise: '#3fbfbf', khaki: '#b8a77a', charcoal: '#3a3a3a',
 };
 
