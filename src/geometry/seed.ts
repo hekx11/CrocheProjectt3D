@@ -563,7 +563,7 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
   // lay each round of the cap over the matching round of the host, top down, so the crown sits on
   // the crown (not sunk inside it) and every stitch is stuck to the patch of host right under it
   {
-    const liftL = (g.nodes[edge[0]].h || 1) * 0.9;
+    const liftL = (g.nodes[edge[0]].h || 1) * 1.2;
     // the stitch each stitch is worked into (short rows can work into older rounds too)
     const mine = new Set(pi.nodeIds), into = new Map<number, number>();
     for (const e of g.edges) if (e.kind === 'into' && mine.has(e.b) && !into.has(e.b)) into.set(e.b, e.a);
@@ -571,7 +571,7 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
     own.forEach((r, i) => {
       // past the full rounds (short rows at the back, a fringe): under the stitches worked into
       if (i >= depth && i > 0) {
-        let at = get(pos, own[i - 1].nodes[0]);
+        let at = get(pos, own[i - 1].nodes[own[i - 1].nodes.length - 1]); // chains start where the yarn is
         r.nodes.forEach((id) => {
           const t = into.get(id);
           if (t !== undefined) at = get(pos, t);
@@ -594,7 +594,7 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
   // cap that sits a little differently haul the host's rim up or down, stretching a neck)
   // the cap lies on the host: every stitch rides just outside the surface under it
   const hostIds = host.nodeIds.filter((id) => !g.nodes[id].virtual);
-  const lift = (g.nodes[edge[0]].h || 1) * 0.9;
+  const lift = (g.nodes[edge[0]].h || 1) * 1.2;
   for (const id of pi.nodeIds) {
     if (g.nodes[id].virtual) continue;
     const pv = get(pos, id);

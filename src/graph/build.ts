@@ -184,7 +184,8 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
             for (const st of ex.stitches) for (const t of st.targets) used = Math.max(used, t + 1);
             if (r.turn) shortRows = true;
             const rest = ringMode || !shortRows ? [] : prevWork.slice(Math.min(used, prevWork.length));
-            prevWork = r.turn ? [...row.nodes].reverse().concat(rest.reverse()) : [...row.nodes, ...rest];
+            // not turned, the next round carries on from this row's end: the unworked stitches first
+            prevWork = r.turn ? [...row.nodes].reverse().concat(rest.reverse()) : [...rest, ...row.nodes];
           }
           ringMode = false;
         }

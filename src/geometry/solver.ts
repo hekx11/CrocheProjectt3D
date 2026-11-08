@@ -244,6 +244,10 @@ export class Solver {
       for (let k = 0; k < st.length; k += 3) {
         const a = st[k] * 3, b = st[k + 1] * 3, off = st[k + 2];
         for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
+        // never inside the clearance: a cap that is tighter than the host would otherwise sink
+        // into it and the host's colour shows through in patches
+        const d = (p[a] - p[b]) * this.nrm[b] + (p[a + 1] - p[b + 1]) * this.nrm[b + 1] + (p[a + 2] - p[b + 2]) * this.nrm[b + 2];
+        if (d < off) for (let c = 0; c < 3; c++) p[a + c] += this.nrm[b + c] * (off - d);
       }
     }
     let maxMove = 0;
