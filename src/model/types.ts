@@ -44,7 +44,8 @@ export type Target =
   | { kind: 'ch-from-hook'; n: number };
 
 export type Op =
-  | { kind: 'stitch'; type: StitchType; target: Target; loop: Loop; tension: number; consumes: number; src: Span }
+  /** carry: a stitch a part round left unworked, passed on to the next round (no new height). */
+  | { kind: 'stitch'; type: StitchType; target: Target; loop: Loop; tension: number; consumes: number; src: Span; carry?: boolean }
   | { kind: 'skip'; n: number; src: Span }
   /** times: a count, 'around' (until the previous row runs out) or { leave: n } (until n stitches remain). */
   | { kind: 'repeat'; ops: Op[]; times: number | 'around' | { leave: number }; src: Span }
@@ -65,6 +66,11 @@ export interface RowDef {
   line: number; // 0-based editor line
   src: Span;
   status: LineStatus;
+  /** Decoration the 3D view leaves out (long chain strands for hair curls). */
+  skipGeometry?: boolean;
+  /** Long strands worked off this row (hair strands, curls): one entry per strand, in order,
+   *  each anchored to the next stitch of the row below. Drawn as cords, not meshed. */
+  strands?: { len: number }[];
 }
 
 export interface Section { name: string; firstRow: number; yarnId?: string; labelMap: Map<number, number> }
@@ -86,7 +92,10 @@ export interface Seam {
   host: string; // host piece id
   rowA?: number; // host absolute rows
   rowB?: number;
-  hint: 'top' | 'side' | 'front' | 'below-eyes' | 'back' | 'bottom' | 'default';
+  /** lid = the piece's last round is joined stitch for stitch to the host's open last round (a coffee top). */
+  hint: 'top' | 'side' | 'front' | 'below-eyes' | 'back' | 'bottom' | 'lid' | 'wrap' | 'default';
+  /** wrap: where a strip is wrapped round the host ("around the shoulders" → 'shoulders'). */
+  wrapAt?: string;
   spacingSts?: number;
   text: string;
   line: number;
@@ -105,8 +114,24 @@ export interface PieceDef {
   finish: 'closed' | 'open' | 'open-with-tail';
   stuffing: 'none' | 'light' | 'firm' | 'unspecified';
   flatten: boolean;
+  /** Shaping after stuffing: "shape into a triangle", "flatten the bottom", "shape into an oval". */
+  shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean };
+  /**
+   * The first row is worked into other pieces instead of a ring or chain: two legs joined into a
+   * body ("sc in next 9 st on the first leg, ch 2, …"), or a skirt worked into the front loops left
+   * on a round of the body. Parts are read in order; a 'ch' with back: true is the other side of
+   * the chain before it.
+   */
+  base?: BasePart[];
+  /** A chain-only strand (a strap, a suspender, a string): no rows, just the chain. It starts on a
+   *  round of the host ("pull up a loop … in round 13 at the back") and is sewn down elsewhere. */
+  strap?: { host: string; row?: number; back: boolean };
   line: number;
 }
+
+export type BasePart =
+  | { kind: 'row'; piece: string; inst: number; row: number; loop: Loop }
+  | { kind: 'ch'; n: number; back?: boolean };
 
 export interface Diagnostic {
   severity: 'error' | 'warning' | 'info';

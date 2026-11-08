@@ -5,7 +5,7 @@ import { ukToUs } from '../model/dictionary';
  * See spec/written-instructions.md, step 2.
  */
 export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
-  let s = ' ' + input.toLowerCase() + ' ';
+  let s = ' ' + input.toLowerCase().replace(/\bf\/o\b/g, 'fasten off') + ' ';
   s = rewritePhrases(s);
   s = s
     .replace(/[×✕]/g, 'x')
@@ -29,7 +29,8 @@ export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
     .replace(/\b(in\s+)?(the\s+)?back\s+loops?(\s+only)?\b/g, ' blo ')
     .replace(/\bbl\s+only\b/g, ' blo ')
     .replace(/\b(in\s+)?(the\s+)?front\s+loops?(\s+only)?\b/g, ' flo ')
-    .replace(/\bfl\s+only\b/g, ' flo ');
+    .replace(/\bfl\s+only\b/g, ' flo ')
+    .replace(/\b(blo|flo)(\d)/g, '$1 $2'); // "BLO24sc"
 
   if (terms === 'UK') s = ukToUs(s);
 
@@ -75,11 +76,35 @@ const NUMBER_WORDS: Record<string, number> = {
 export function rewritePhrases(input: string): string {
   const words = Object.keys(NUMBER_WORDS).join('|');
   return input
+    // "(ch 2 does not count as a stitch)": a note about the turning chain, not an instruction
+    .replace(/\((?:[^()]*?\b)?(?:does not|doesn['’]t|do not|don['’]t) count[^()]*\)/g, ' ')
+    // advice, not stitches: "ensuring to keep your sl sts loose"
+    .replace(/,?\s*\b(?:ensuring|making sure|being sure|taking care)\b[^.,;()]*/g, ' ')
+    // "dc's", "ch 1's" → plain abbreviations
+    .replace(/\b(sc|hdc|dc|tr|ch|sts?|inc|dec|\d+)['’]s\b/g, '$1')
+    // "(sc in next 3 st, inc) repeat 6 times", "(sc, inc) * repeat 6 times", "(7sc, dec)*2" → "(…) x 6"
+    .replace(/\)\s*\*?\s*,?\s*(?:repeat|rep)\s*(\d+)\s*times\b/g, ') x $1 ')
+    .replace(/\)\s*\*\s*(\d+)\b/g, ') x $1 ')
     .replace(/\bonce more\b/g, ' 1 more times ')
     .replace(/\btwice more\b/g, ' 2 more times ')
     .replace(/\bonce\b/g, ' 1 times ')
     .replace(/\btwice\b/g, ' 2 times ')
     .replace(new RegExp(`\\b(${words})\\b`, 'g'), (w) => String(NUMBER_WORDS[w]))
+    // "(picture B)", "(pictures G-H)": references to photos
+    .replace(/\(\s*(?:pictures?|photos?|pics?|images?|fig(?:ure)?s?)\b[^)]*\)/g, ' ')
+    // "leave the remaining stitches unworked": nothing to do
+    .replace(/\bleave (?:the )?(?:remaining|rest of the|other) (?:st|sts|stitch(?:es)?) unworked\b/g, ' ')
+    // a picot: "ch 3, start in third ch from hook, slst in this st" is a chain bump, nothing worked below
+    .replace(/\bch\s*(\d+)\s*,\s*(?:start(?:ing)?\s+)?(?:in|into)\s+(?:the\s+)?(?:second|third|fourth|2nd|3rd|4th|\d)\s+ch\s+from\s+(?:the\s+)?hook\s*,?\s*(?:sl\s*st|slst|slip stitch)\s+(?:in|into)\s+(?:this|the same|same)\s+(?:st|stitch|ch)/g, ' ch $1 ')
+    // "start in second ch from hook, sc in next 30 ch": the first stitch skips the ch(s) next to the hook
+    .replace(/^\s*start(?:ing)?\s+(?:in|into)\s+(?:the\s+)?(second|third|fourth|2nd|3rd|4th|2|3|4)\s+(?:ch|chain)\s+from\s+(?:the\s+)?hook\s*,?/g, (_m, w) => {
+      const n = ({ second: 2, third: 3, fourth: 4, '2nd': 2, '3rd': 3, '4th': 4 } as Record<string, number>)[w] ?? +w;
+      return ` skip ${n - 1} ch, `;
+    })
+    // "start 6 sc in a magic ring"
+    .replace(/^\s*start(?:ing)?\s+(?=\d)/, ' ')
+    // "sc in all 10 st", "inc in all12 st", "sc in all 6 sc" → each stitch
+    .replace(/\b(?:in\s+)?all\s*\d+\s*(?:st|sts|stitches|stitch|sc|hdc|dc|ch)\b/g, ' in each st ')
     .replace(/\b(\d+)\s+(more\s+)?time\b/g, '$1 $2times')
     // "do this 4 times (in total)", "repeat this 5 more times", "repeat the above 3 times"
     .replace(/\b(?:do|work|repeat|rep)\s+(?:this|these|that|the above|the last \w+|the sequence|from the beginning|from beg\w*)(?:\s+(?:steps?|sequence|instructions?))?\s+(?=\d+\s+(?:more\s+)?times)/g, ' rep ')

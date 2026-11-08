@@ -67,6 +67,18 @@ export const YARN_LOOKS: Record<string, YarnLook> = {
     normalStrength: 1.0, cavity: 0.6, roughness: 0.7, sheen: 0.7, sheenRoughness: 0.3, sheenTint: 0.35, relief: 0.28,
     shells: { count: 5, length: 0.12, kind: 'pile', density: 0.95, opacity: 1 },
   },
+  // polyester plush / blanket yarn: fat, dense, shiny pile
+  plush: {
+    plies: 0, twist: 0, plyDepth: 0, legRadius: 0.26, blur: 2, pile: 0.08,
+    normalStrength: 1.0, cavity: 0.65, roughness: 0.6, sheen: 0.8, sheenRoughness: 0.3, sheenTint: 0.4, relief: 0.3,
+    shells: { count: 6, length: 0.14, kind: 'pile', density: 0.95, opacity: 1 },
+  },
+  // smooth plied polyester: crisp plies, satin shine, no fuzz
+  polyester: {
+    plies: 3, twist: 2.2, plyDepth: 0.2, legRadius: 0.2, blur: 1, pile: 0.0,
+    normalStrength: 1.1, cavity: 0.5, roughness: 0.42, sheen: 0.2, sheenRoughness: 0.3, sheenTint: 0.5, relief: 0.2,
+    shells: { count: 0, length: 0, kind: 'none', density: 0, opacity: 1 },
+  },
   // thin core, big airy halo that blurs the stitches
   mohair: {
     plies: 2, twist: 2.0, plyDepth: 0.3, legRadius: 0.13, blur: 3, pile: 0.1,

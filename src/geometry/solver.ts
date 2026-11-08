@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -17,6 +17,8 @@ export interface SolverInput {
    * fabric is flat (increase rounds, straight sides), which is what rounds out a stuffed ball.
    */
   give?: Float32Array;
+  /** [patchNode, hostNode, offset]*: the patch node is held offset out along the host node's normal */
+  stick?: Float32Array;
   fixed?: Uint8Array; // 1 = do not move (virtual / pinned)
 }
 
@@ -37,8 +39,33 @@ export class Solver {
   private inst: SolverInput['instances'];
   private crease: Uint8Array;
   private pouchMask?: Uint8Array;
+  private shapeBase = new Map<object, number>();
+  /** how hard stuffing rounds each node out: firmer stuffing rounds more (stuffed²) */
+  private roundWeight?: Float32Array;
   private stuffedMask: Uint8Array | null = null;
   energy = Infinity;
+  private comp?: Int32Array;
+  private stickB?: Uint32Array;
+  private owner?: Int32Array;
+  /** move a clearance stick's surface stitch to a neighbour (same piece) nearer its stitch */
+  private nearestOnSurface(k: number) {
+    const p = this.pos, a = this.input.stick![k] * 3, sb = this.stickB!, own = this.owner!;
+    let b = sb[k / 3];
+    const d2 = (j: number) => (p[j * 3] - p[a]) ** 2 + (p[j * 3 + 1] - p[a + 1]) ** 2 + (p[j * 3 + 2] - p[a + 2]) ** 2;
+    for (let it = 0; it < 4; it++) {
+      let best = b, bd = d2(b);
+      for (let q = this.nbrStart[b]; q < this.nbrStart[b + 1]; q++) {
+        const j = this.nbr[q];
+        if (own[j] !== own[b]) continue;
+        const d = d2(j);
+        if (d < bd) { bd = d; best = j; }
+      }
+      if (best === b) break;
+      b = best;
+    }
+    sb[k / 3] = b;
+  }
+  private compSize?: Float32Array;
 
   constructor(private input: SolverInput) {
     this.pos = input.pos.slice();
@@ -63,7 +90,8 @@ export class Solver {
     // on (a snout) keep their dome: smoothing an open edge would flatten it
     if (this.inst.some((pi) => pi.stuffed > 0)) {
       this.stuffedMask = new Uint8Array(N).fill(1);
-      for (const pi of this.inst) if (pi.stuffed > 0 && pi.closed !== false) for (const id of pi.nodeIds) this.stuffedMask[id] = input.fixed?.[id] ?? 0;
+      this.roundWeight = new Float32Array(N);
+      for (const pi of this.inst) if (pi.stuffed > 0 && pi.closed !== false) for (const id of pi.nodeIds) { this.stuffedMask[id] = input.fixed?.[id] ?? 0; this.roundWeight[id] = pi.stuffed * pi.stuffed; }
     }
     // mask of nodes NOT on a flattened pouch (ears): those get extra smoothing so the soft
     // double layer evens out instead of crumpling where its round end can't lie flat
@@ -71,11 +99,30 @@ export class Solver {
       this.pouchMask = new Uint8Array(N).fill(1);
       for (const pi of this.inst) if (pi.side) for (const id of pi.nodeIds) this.pouchMask[id] = input.fixed?.[id] ?? 0;
     }
+    // joined pieces (edges and sticks): draping one part must not make the whole toy sink
+    if (this.inst.some((pi) => pi.drape)) {
+      const par = new Int32Array(N).map((_, i) => i);
+      const find = (i: number): number => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+      const join = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) par[rb] = ra; };
+      for (let e = 0; e < E; e++) join(input.edges[e * 5], input.edges[e * 5 + 1]);
+      const st = input.stick;
+      if (st) for (let k = 0; k < st.length; k += 3) join(st[k], st[k + 1]);
+      this.comp = new Int32Array(N);
+      for (let i = 0; i < N; i++) this.comp[i] = find(i);
+      this.compSize = new Float32Array(N);
+      for (let i = 0; i < N; i++) this.compSize[this.comp[i]]++;
+    }
+    if (input.stick) {
+      this.stickB = new Uint32Array(input.stick.length / 3);
+      for (let k = 0; k < this.stickB.length; k++) this.stickB[k] = input.stick[k * 3 + 1];
+      this.owner = new Int32Array(N).fill(-1);
+      this.inst.forEach((pi, j) => { for (const id of pi.nodeIds) this.owner![id] = j; });
+    }
     this.crease = new Uint8Array(N);
     for (const pi of this.inst) for (const id of pi.crease) this.crease[id] = 1;
   }
 
-  private laplace(lam: number, fixed?: Uint8Array) {
+  private laplace(lam: number, fixed?: Uint8Array, weight?: Float32Array) {
     const p = this.pos;
     const N = p.length / 3;
     const d = this.nrm; // reuse as scratch, overwritten by computeNormals later
@@ -85,12 +132,101 @@ export class Solver {
       let cx = 0, cy = 0, cz = 0;
       for (let j = s0; j < s1; j++) { const q = this.nbr[j] * 3; cx += p[q]; cy += p[q + 1]; cz += p[q + 2]; }
       const inv = 1 / (s1 - s0);
-      const l = this.crease[i] ? lam * 0.2 : lam;
+      const l = (this.crease[i] ? lam * 0.2 : lam) * (weight ? weight[i] : 1);
       d[i * 3] = (cx * inv - p[i * 3]) * l;
       d[i * 3 + 1] = (cy * inv - p[i * 3 + 1]) * l;
       d[i * 3 + 2] = (cz * inv - p[i * 3 + 2]) * l;
     }
     for (let i = 0; i < p.length; i++) p[i] += d[i];
+  }
+
+  /**
+   * Hand shaping of a stuffed piece, as a gentle pull toward the shape (world up = +y, front = +z):
+   * triangle = width tapers toward the top and the piece is a bit thinner front to back (onigiri);
+   * flatBottom = nodes below a base plane are pushed up onto it; oval = taller than wide.
+   */
+  /**
+   * A flat circle (a coaster) blocks round: increases stacked in the same place would otherwise
+   * leave corners. Each round is pulled gently toward a circle of its own mean radius.
+   */
+  /**
+   * A brim (rounds after a front-loop fold that grow much wider): it stands out from the fold as a
+   * flat ring at its full width. Unstuffed, nothing else holds it out, and smoothing pulls the
+   * free edge in until the brim crumples.
+   */
+  private holdBrim(b: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }) {
+    const p = this.pos;
+    const cen = (ids: number[]) => {
+      const c = [0, 0, 0];
+      for (const id of ids) for (let k = 0; k < 3; k++) c[k] += p[id * 3 + k] / ids.length;
+      return c;
+    };
+    const C = cen(b.fold), T = cen(b.top);
+    let ax = [C[0] - T[0], C[1] - T[1], C[2] - T[2]];
+    const al = Math.hypot(ax[0], ax[1], ax[2]);
+    if (al < 1e-6) return;
+    ax = ax.map((v) => v / al);
+    b.rings.forEach((r, j) => {
+      const R = b.radius[j];
+      for (const id of r) {
+        const v = [p[id * 3] - C[0], p[id * 3 + 1] - C[1], p[id * 3 + 2] - C[2]];
+        const a = v[0] * ax[0] + v[1] * ax[1] + v[2] * ax[2];
+        const rad = [v[0] - a * ax[0], v[1] - a * ax[1], v[2] - a * ax[2]];
+        const L = Math.hypot(rad[0], rad[1], rad[2]) || 1e-6;
+        const kr = ((R - L) / L) * 0.3;
+        for (let c = 0; c < 3; c++) p[id * 3 + c] += rad[c] * kr - a * ax[c] * 0.3;
+      }
+    });
+  }
+
+  private roundOut(rings: number[][], n: [number, number, number]) {
+    const p = this.pos;
+    let cx = 0, cy = 0, cz = 0, m = 0;
+    for (const r of rings) for (const id of r) { cx += p[id * 3]; cy += p[id * 3 + 1]; cz += p[id * 3 + 2]; m++; }
+    if (!m) return;
+    cx /= m; cy /= m; cz /= m;
+    for (const r of rings) {
+      if (r.length < 6) continue;
+      const vs = r.map((id) => {
+        let dx = p[id * 3] - cx, dy = p[id * 3 + 1] - cy, dz = p[id * 3 + 2] - cz;
+        const d = dx * n[0] + dy * n[1] + dz * n[2];
+        dx -= d * n[0]; dy -= d * n[1]; dz -= d * n[2];
+        return [dx, dy, dz, Math.hypot(dx, dy, dz) || 1e-6];
+      });
+      const R = vs.reduce((a, v) => a + v[3], 0) / vs.length;
+      r.forEach((id, j) => {
+        const [dx, dy, dz, L] = vs[j];
+        const k = ((R - L) / L) * 0.25;
+        p[id * 3] += dx * k; p[id * 3 + 1] += dy * k; p[id * 3 + 2] += dz * k;
+      });
+    }
+  }
+
+  private shapeBy(pi: { nodeIds: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean } }) {
+    const p = this.pos, ids = pi.nodeIds, sh = pi.shape!;
+    let cx = 0, cy = 0, cz = 0, y0 = Infinity, y1 = -Infinity;
+    for (const id of ids) { cx += p[id * 3]; cy += p[id * 3 + 1]; cz += p[id * 3 + 2]; y0 = Math.min(y0, p[id * 3 + 1]); y1 = Math.max(y1, p[id * 3 + 1]); }
+    cx /= ids.length; cy /= ids.length; cz /= ids.length;
+    const H = Math.max(1e-6, y1 - y0), k = 0.08;
+    for (const id of ids) {
+      const i = id * 3;
+      if (sh.triangle) {
+        const t = (p[i + 1] - y0) / H; // 0 bottom … 1 top
+        const sx = 1.35 - 1.0 * t;
+        p[i] += (cx + (p[i] - cx) * sx - p[i]) * k;
+        p[i + 2] += (cz + (p[i + 2] - cz) * 0.8 - p[i + 2]) * k;
+      }
+      if (sh.oval) {
+        p[i + 1] += (cy + (p[i + 1] - cy) * 1.15 - p[i + 1]) * k;
+        p[i] += (cx + (p[i] - cx) * 0.93 - p[i]) * k;
+        p[i + 2] += (cz + (p[i + 2] - cz) * 0.93 - p[i + 2]) * k;
+      }
+      if (sh.flatBottom || sh.triangle) {
+        // the base plane is set once, where it first sits (pushing it up every step would creep)
+        const base = this.shapeBase.get(pi) ?? (this.shapeBase.set(pi, y0 + H * 0.12), y0 + H * 0.12);
+        if (p[i + 1] < base) p[i + 1] += (base - p[i + 1]) * 0.3;
+      }
+    }
   }
 
   /** Run `iters` iterations; returns the largest node movement (mm). */
@@ -132,11 +268,12 @@ export class Solver {
       this.laplace(-lam * 1.04, fixed);
       // stuffing fills the fabric out evenly: on stuffed pieces, extra smoothing without the
       // shrink-back step rounds off flat ends and sharp rims (pressure keeps the volume up)
-      if (this.stuffedMask) this.laplace(ROUNDING, this.stuffedMask);
+      if (this.stuffedMask) this.laplace(ROUNDING, this.stuffedMask, this.roundWeight);
       if (this.pouchMask) { this.laplace(POUCH_SMOOTH, this.pouchMask); this.laplace(-POUCH_SMOOTH * 1.04, this.pouchMask); }
     }
     // 3. pressure for stuffed pieces, planarity for flat ones
     computeNormals(p, tris, triPiece, this.inst as any, this.nrm);
+    const drop = this.comp ? new Float32Array(this.comp.length) : undefined;
     for (const pi of this.inst) {
       if (pi.stuffed > 0) {
         const f = pi.stuffed * pi.hAvg * 0.1;
@@ -146,6 +283,14 @@ export class Solver {
           p[i] += this.nrm[i] * f; p[i + 1] += this.nrm[i + 1] * f; p[i + 2] += this.nrm[i + 2] * f;
         }
       }
+      // loose fabric hanging from a join (a skirt) drapes down instead of standing out
+      if (pi.drape) {
+        const g = pi.drape * pi.hAvg;
+        for (const id of pi.nodeIds) if (!(fixed && fixed[id])) { p[id * 3 + 1] -= g; if (drop) drop[this.comp![id]] += g; }
+      }
+      if (pi.rings) this.roundOut(pi.rings, pi.planeNormal);
+      if (pi.brim) this.holdBrim(pi.brim);
+      if (pi.shape) this.shapeBy(pi);
       if (pi.flat) {
         // pull toward the best-fit plane through the centroid (normal = average normal)
         let cx = 0, cy = 0, cz = 0, nx = 0, ny = 0, nz = 0;
@@ -165,6 +310,28 @@ export class Solver {
           const k = sd !== 0 && d * sd < 0 ? 0.6 : pi.side ? PUCKER : 0.3;
           p[i] -= d * nx * k; p[i + 1] -= d * ny * k; p[i + 2] -= d * nz * k;
         }
+      }
+    }
+    // the drape pulled some parts down: lift each joined toy back by the average, so the hanging
+    // part moves against the rest instead of the whole toy sinking frame after frame
+    if (drop && this.comp && this.compSize) for (let i = 0; i < drop.length; i++) {
+      const c = this.comp[i];
+      if (drop[c]) p[i * 3 + 1] += drop[c] / this.compSize[c];
+    }
+    const st = this.input.stick;
+    if (st) {
+      for (let k = 0; k < st.length; k += 3) {
+        // a negative offset only keeps the stitch clear of the surface (a veil hanging over hair);
+        // the surface stitch it keeps clear of follows it, to whichever neighbour is now nearest
+        if (st[k + 2] < 0) this.nearestOnSurface(k);
+        const a = st[k] * 3, b = this.stickB![k / 3] * 3, off = Math.abs(st[k + 2]);
+        if (st[k + 2] >= 0) for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
+        // never inside the clearance: a cap that is tighter than the host would otherwise sink
+        // into it and the host's colour shows through in patches
+        const d = (p[a] - p[b]) * this.nrm[b] + (p[a + 1] - p[b + 1]) * this.nrm[b + 1] + (p[a + 2] - p[b + 2]) * this.nrm[b + 2];
+        // (a clearance only holds over the surface: past the edge of the hair it lets go)
+        const lat = st[k + 2] < 0 ? (p[a] - p[b]) ** 2 + (p[a + 1] - p[b + 1]) ** 2 + (p[a + 2] - p[b + 2]) ** 2 - d * d : 0;
+        if (d < off && lat < 4 * off * off) for (let c = 0; c < 3; c++) p[a + c] += this.nrm[b + c] * (off - d);
       }
     }
     let maxMove = 0;

@@ -41,3 +41,103 @@ describe('flat row-worked pieces', () => {
     expect(Math.min(...widths) / Math.max(...widths)).toBeGreaterThan(0.95);
   });
 });
+
+describe('graph rules from tested patterns', () => {
+  it('ties chain loops in a row to the stitch below them (scallops stay on the edge)', () => {
+    const model = buildModel(parsePattern(`Cup
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (ch 2, slst in next st) repeat 12 times [36]
+`), { tension: 'normal' });
+    const g = model.graph;
+    const last = g.instances[0].rows[g.instances[0].rows.length - 1];
+    const chains = last.nodes.filter((id) => g.nodes[id].type === 'ch');
+    expect(chains.length).toBe(24);
+    for (const id of chains) expect(g.edges.some((e) => e.kind === 'into' && e.b === id)).toBe(true);
+  });
+  it('works a round after short rows into the stitches they left unworked', () => {
+    const model = buildModel(parsePattern(`Cap
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3 – 4: sc in all 12 st [12]
+Rnd 5: sc in next 6 st, ch 1, turn [6] Leave the remaining stitches unworked.
+Rnd 6: sc in next 6 st [6]
+Do not turn and continue crocheting in rounds.
+Rnd 7: sc in next 12 st [12]
+`), { tension: 'normal' });
+    const g = model.graph;
+    const rows = g.instances[0].rows;
+    const r7 = rows[rows.length - 1];
+    const r4 = rows.find((r) => r.row === 4)!;
+    // round 7 reaches the six stitches of round 4 that round 5 skipped
+    const into = new Set(g.edges.filter((e) => e.kind === 'into' && r7.nodes.includes(e.b)).map((e) => e.a));
+    expect(r4.nodes.filter((id) => into.has(id)).length).toBe(6);
+    // short rows are open rows (their two ends are not joined into a ring)
+    expect(rows.find((r) => r.row === 5)!.closed).toBe(false);
+    expect(rows.find((r) => r.row === 4)!.closed).toBe(true);
+  });
+});
+
+describe('pieces wrapped round another piece', () => {
+  it('hangs the worked part of a wrapped chain at the back, outside the piece it is wrapped round', () => {
+    const model = buildModel(parsePattern(`Ball
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (sc, inc) repeat 6 times [18]
+Rnd 4: (2 sc, inc) repeat 6 times [24]
+Rnd 5 – 8: sc in all 24 st [24]
+Rnd 9: (2 sc, dec) repeat 6 times [18]
+Rnd 10: (sc, dec) repeat 6 times [12]
+Stuff firmly.
+Rnd 11: dec 6 times [6]
+Fasten off.
+
+Veil
+Ch 30. Crochet in rows.
+Row 1: start in second ch from hook, sc in next 8 st [8] Leave the remaining stitches unworked.
+Row 2: ch 1, turn, 2 sc in each st [16]
+Row 3: ch 1, turn, sc in each st [16]
+Fasten off.
+
+Assembly
+Wrap the foundation chain of the veil around the ball.
+`), { tension: 'normal' });
+    const s = new Solver(model.solverInput);
+    for (let f = 0; f < 300; f++) if (s.step(10) < 0.002) break;
+    const [ball, veil] = model.graph.instances;
+    expect(model.solverInput.instances[1].flat).toBe(false);
+    const c = [0, 1, 2].map((k) => ball.nodeIds.reduce((a, id) => a + s.pos[id * 3 + k], 0) / ball.nodeIds.length);
+    const R = ball.nodeIds.reduce((a, id) => a + Math.hypot(s.pos[id * 3] - c[0], s.pos[id * 3 + 1] - c[1], s.pos[id * 3 + 2] - c[2]), 0) / ball.nodeIds.length;
+    const hanging = veil.rows.slice(1).flatMap((r) => r.nodes);
+    const z = hanging.reduce((a, id) => a + s.pos[id * 3 + 2], 0) / hanging.length;
+    expect(z).toBeLessThan(c[2]); // behind: the front (+z) stays clear
+    const inside = hanging.filter((id) => Math.hypot(s.pos[id * 3] - c[0], s.pos[id * 3 + 1] - c[1], s.pos[id * 3 + 2] - c[2]) < R * 0.9);
+    expect(inside.length).toBe(0);
+  });
+});
+
+describe('hat brims', () => {
+  it('holds a brim out flat at its full width instead of crumpling it', () => {
+    const model = buildModel(parsePattern(`Hat
+Rnd 1: 5 sc in a magic ring [5]
+Rnd 2: inc in all 5 st [10]
+Rnd 3: (sc, inc) repeat 5 times [15]
+Rnd 4: (2 sc, inc) repeat 5 times [20]
+Rnd 5: BLO sc in all 20 st [20]
+Rnd 6 – 9: sc in all 20 st [20]
+Rnd 10: FLO sc in all 20 st [20]
+Rnd 11: inc in all 20 st [40]
+Rnd 12: sc in all 40 st [40]
+Fasten off.
+`), { tension: 'normal' });
+    expect(model.solverInput.instances[0].brim?.rings.length).toBe(2);
+    const s = new Solver(model.solverInput);
+    for (let f = 0; f < 300; f++) if (s.step(10) < 0.002) break;
+    const rows = model.graph.instances[0].rows;
+    const last = rows[rows.length - 1].nodes;
+    const c = [0, 1, 2].map((k) => last.reduce((a, id) => a + s.pos[id * 3 + k], 0) / last.length);
+    const r = last.reduce((a, id) => a + Math.hypot(s.pos[id * 3] - c[0], s.pos[id * 3 + 1] - c[1], s.pos[id * 3 + 2] - c[2]), 0) / last.length;
+    const nominal = last.reduce((a, id) => a + model.graph.nodes[id].w, 0) / (2 * Math.PI);
+    expect(r).toBeGreaterThan(nominal * 0.8);
+  });
+});

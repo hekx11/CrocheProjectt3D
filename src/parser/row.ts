@@ -50,13 +50,16 @@ export function extractCount(s: string): { rest: string; count?: { n: number; un
     const rest = s.slice(0, last.index) + ' ' + s.slice(last.index + last[0].length);
     return { rest, count: { n: +last[1], unit: /loop|space|sp\b|petal|ch-/.test(unit) ? 'loops' : 'st' } };
   }
+  // "(40 sc and 40 ch 1's)": the stitches, not the chain spaces between them
+  const both = /\((\d+)\s*(?:sc|st|sts|dc|hdc|slst|sl st)\s+and\s+\d+\s*ch[^)]*\)/.exec(s);
+  if (both) return { rest: s.slice(0, both.index) + ' ' + s.slice(both.index + both[0].length), count: { n: +both[1], unit: 'st' } };
   const t = /(?:[-=:]\s*|,\s*)(\d+)\s*st\s*\.?\s*$/.exec(s);
   if (t) return { rest: s.slice(0, t.index), count: { n: +t[1], unit: 'st' } };
   return { rest: s };
 }
 
 /** Parse a normalised instruction into ops. */
-export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChIsTurning: boolean; src: Span }): RowParse {
+export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChIsTurning: boolean; src: Span; groupsInOne?: boolean }): RowParse {
   const res: RowParse = {
     ops: [], join: false, turn: false, fastenOff: false, tail: false, close: false,
     assumptions: [], ignored: [], unreadable: false,
@@ -66,6 +69,12 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
   s = c.rest;
   res.expectedCount = c.count;
 
+  // Side notes after the instruction ("When working in the yellow stitches, …", "For all stitches
+  // in blue work as usual.") are not stitches; keep their words visible as skipped.
+  s = s.replace(/(^|[.]\s+)((?:when|for all|for each|if|note|make sure|remember|tip|this will|you will|you should)\b[^.]*)(?=\.|$)/g, (_m, pre, note) => {
+    res.ignored.push(...note.split(/\s+/).filter((w: string) => /[a-z]{3,}/.test(w) && !/^(the|and|for|each|all|with|work|working|when|will|you|this|that|should|usual|stitches|st)$/.test(w)));
+    return pre + ' ';
+  });
   // --- non-stitch clauses -------------------------------------------------
   const take = (re: RegExp, fn: (m: RegExpExecArray) => void) => {
     const m = re.exec(s);
@@ -77,7 +86,7 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     return false;
   };
   const colorNames = Object.keys(COLORS).sort((a, b) => b.length - a.length).join('|');
-  take(new RegExp(`(?:change (?:color|yarn) to|switch to|join|with|using)\\s+(${colorNames})(\\s+yarn)?`), (m) => (res.colorChange = m[1]));
+  take(new RegExp(`(?:change (?:color |yarn )?to|switch to|join|with|using)\\s+(${colorNames})(\\s+colou?r)?(\\s+yarn)?`), (m) => (res.colorChange = m[1]));
   take(/fasten off.*$/, (m) => {
     res.fastenOff = true;
     if (/tail|sew/.test(m[0])) res.tail = true;
@@ -87,11 +96,16 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
   take(/(?:add )?stuff(?:ing|ed)?\b[^,]*/, (m) => (res.stuffing = /light/.test(m[0]) ? 'light' : 'firm'));
   take(/(?:,\s*)?(?:ending with\s+)?(?:join(?:ing)?\s+(?:with\s+)?(?:a\s+)?)?slst\s+(?:in|to)\s+(?:the\s+)?(?:top|base|first|beg|beginning)\b[^,;]*/, () => (res.join = true));
   take(/\bjoin(?:ing)?\b(?:\s+with\s+(?:a\s+)?slst)?[^,;]*/, () => (res.join = true));
+  // "7 sc, ch 1, turn": the chain at the end is the next row's turning chain, not a stitch
+  take(/[,;]?\s*ch\s*\d?\s*,?\s*turn\b/, () => (res.turn = true));
   while (take(/\bturn\b/, () => (res.turn = true)));
+  // "mr, 6sc": the magic ring is already the start; "36sc, slst": the slip stitch only closes the round
+  take(/^\s*mr\s*[,:]\s*(?=\d)/, () => {});
+  take(/[,;]\s*slst\s*$/, () => {});
 
   // --- "working in back loops only, …" sets the loop for the whole row -------
   let rowLoop: Loop = 'both';
-  take(/^\s*(?:working\s+|work\s+)?(blo|flo)\b\s*(?:throughout|for this (?:round|row|rnd))?\s*[,:]/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
+  take(/^\s*(?:working\s+|work\s+)?(blo|flo)\b\s*(?:throughout|for this (?:round|row|rnd))?\s*(?:[,:]|(?=\d))/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
   take(/[,;]?\s*(?:working\s+|work\s+)(blo|flo)\s*$/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
 
   // --- "decrease 6 sts evenly", "6 inc evenly around", "dec evenly 6 times" --
@@ -101,6 +115,10 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     if (k > 0) evenly = { change: m[2] as 'inc' | 'dec', k };
   });
 
+  // "*inc, 1 sc in next 3 st* repeat around", "*…* rep 4 more times" (closed stars first, or the
+  // open-star rule below would read "* rep around" as an empty repeat)
+  s = s.replace(/\*([^*]+)\*\s*[,.]?\s*rep\s*(around|across|(\d+)\s*more times|(\d+)\s*times)?/g, (_m, body, _kind, more, times) =>
+    more ? ` [ ${body} ] x ${+more + 1} ` : times ? ` [ ${body} ] x ${+times} ` : ` [ ${body} ] around `);
   // --- star repeats: *X; rep from * around / N more times / N times ------
   s = s.replace(/\*([^*]+?)[;,]?\s*rep\s*(?:from\s*)?\*?\s*(around|across|to end|(\d+)\s*more times|(\d+)\s*times)?/g, (_m, body, kind, more, times) => {
     if (more) return ` [ ${body} ] x ${+more + 1} `;
@@ -205,6 +223,11 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
         inner = intoOne(inner, w === 'same');
       }
       const rep = readRep();
+      // the pattern's key says "(…) all in one stitch": "(1 hdc, 1 dc)", "(2 hdc)"
+      if (opts.groupsInOne && t === '(' && rep === null && inner.length && inner.every((o) => o.kind === 'stitch' && o.target.kind === 'next' && o.consumes === 1) || opts.groupsInOne && t === '(' && rep === null && inner.length === 1 && inner[0].kind === 'repeat' && typeof inner[0].times === 'number' && inner[0].ops.every((o) => o.kind === 'stitch')) {
+        const flat = inner.flatMap((o) => (o.kind === 'repeat' ? Array.from({ length: o.times as number }, () => o.ops).flat() : [o]));
+        return intoOne(flat, false);
+      }
       if (rep === 'around' && containsAround(inner)) return inner;
       return wrap(inner, rep);
     }
@@ -411,6 +434,7 @@ export interface ProducedStitch {
   targets: number[]; // indices into the previous row's work order; empty for ring/none
   ring: boolean;
   isChain: boolean;
+  carry?: boolean;
 }
 
 export interface ExecResult {
@@ -470,7 +494,7 @@ export function execute(ops: Op[], prevCount: number, ringMode: boolean): ExecRe
         } else for (let i = 0; i < op.times; i++) run(op.ops, guard);
         continue;
       }
-      const st: ProducedStitch = { type: op.type, loop: op.loop, tension: op.tension, targets: [], ring: false, isChain: op.type === 'ch' };
+      const st: ProducedStitch = { type: op.type, loop: op.loop, tension: op.tension, targets: [], ring: false, isChain: op.type === 'ch', carry: op.carry };
       const t = op.target;
       if (t.kind === 'none') { /* chain */ }
       else if (t.kind === 'ring' || (ringMode && t.kind !== 'same')) st.ring = true;

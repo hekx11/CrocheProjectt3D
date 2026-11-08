@@ -3,6 +3,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Model } from '../geometry/pipeline';
 import { computeNormals } from '../geometry/mesh';
 import { yarnTextures, type YarnTextures, STITCH_BAND, TR } from './textures';
+import { Yarn3D } from './yarn3d';
+
+/** Stitches drawn as real 3D yarn; "?yarn=flat" falls back to the textured surface alone. */
+const YARN3D = typeof location === 'undefined' || !/[?&]yarn=flat\b/.test(location.search);
 
 /**
  * Renders the solved stitch surface. Triangles are expanded (non-indexed) so each one can carry
@@ -20,6 +24,7 @@ export class CrochetView {
   private corner: Uint32Array = new Uint32Array();
   private relief = { map: null as THREE.Texture | null, scale: 0, bias: 0 };
   private markers = new THREE.Group();
+  private yarn = new Yarn3D();
   private model: Model | null = null;
   private pos: Float32Array = new Float32Array();
   private nrm: Float32Array = new Float32Array();
@@ -48,6 +53,7 @@ export class CrochetView {
     this.scene.add(this.markers);
     this.scene.add(this.shells);
     this.scene.add(this.ridges);
+    this.scene.add(this.yarn.group);
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.domElement.addEventListener('pointerup', (e) => this.pick(e));
@@ -170,7 +176,17 @@ export class CrochetView {
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.scene.add(this.mesh);
-    this.addShells(geo, yt, sz.w);
+    if (YARN3D) {
+      // the surface is now what shows between the strands: darker, like the inside of the fabric
+      // (not black: on flat lace-like work such as a coaster the gaps are large and show a lot)
+      mat.color.setScalar(0.72);
+      mat.map = null;
+      mat.sheen = 0;
+      this.yarn.build(model, look);
+    } else {
+      this.yarn.dispose();
+      this.addShells(geo, yt, sz.w);
+    }
     this.buildRidges(model, yt);
     this.nrm = new Float32Array(model.solverInput.pos.length);
     this.applyColors();
@@ -330,6 +346,15 @@ export class CrochetView {
       }
     }
     col.needsUpdate = true;
+    if (YARN3D) {
+      const nodes = this.model.graph.nodes;
+      const c = new THREE.Color();
+      this.yarn.setColors((id) => {
+        c.set(nodes[id].color);
+        if (this.highlightLine >= 0 && nodes[id].line === this.highlightLine) c.lerp(new THREE.Color(1, 0.55, 0.1), 0.65);
+        return c;
+      });
+    }
   }
 
   /** New positions from the solver (same topology). */
@@ -348,16 +373,80 @@ export class CrochetView {
     this.mesh.geometry.computeBoundingBox();
     this.updateMarkers();
     this.updateRidges();
+    if (YARN3D) { const nodes = this.model.graph.nodes; this.yarn.update(pos, this.nrm, (id) => nodes[id].w); }
     const bb = this.mesh.geometry.boundingBox!;
     const s = bb.getSize(new THREE.Vector3());
     this.onSize?.([s.x, s.y, s.z]);
     if (this.needsFit) this.fit();
   }
 
+  private markMats = new Map<string, THREE.Material>();
+  private markMat(key: string, make: () => THREE.Material): THREE.Material {
+    let m = this.markMats.get(key);
+    if (!m) { m = make(); this.markMats.set(key, m); }
+    return m;
+  }
+
   private updateMarkers() {
     if (!this.model) return;
+    for (const o of this.markers.children) {
+      const m = o as THREE.Mesh;
+      // geometry is rebuilt every frame; materials are shared and kept (disposing one frees its
+      // shader program, and making it again recompiles the shader on every solver frame)
+      m.geometry?.dispose();
+    }
     this.markers.clear();
     const pos = this.pos, nrm = this.nrm;
+    // chain strands (straps, suspenders): no fabric to mesh, drawn as a cord of yarn
+    for (const pi of this.model.graph.instances) {
+      if (pi.rows.length !== 1 || !pi.piece.strap) continue;
+      const ids = pi.rows[0].nodes;
+      if (ids.length < 2) continue;
+      const pts = ids.map((id) => new THREE.Vector3(pos[id * 3], pos[id * 3 + 1], pos[id * 3 + 2]));
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const n0 = this.model.graph.nodes[ids[0]];
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, ids.length * 3, Math.max(0.6, n0.h * 0.45), 8, false),
+        this.markMat(`cord:${n0.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(n0.color), roughness: 0.9 })),
+      );
+      this.markers.add(tube);
+    }
+    // long strands (hair strands, curls): twisted and laid round the piece from where they hang,
+    // half to each side, the later ones of each side a little lower
+    for (const pi of this.model.graph.instances) {
+      if (!pi.strands?.length) continue;
+      const P = (id: number) => new THREE.Vector3(pos[id * 3], pos[id * 3 + 1], pos[id * 3 + 2]);
+      const crown = pi.centre !== undefined ? P(pi.centre) : null;
+      const h = this.model.sizing.h;
+      const half = Math.ceil(pi.strands.length / 2);
+      pi.strands.forEach((st, k) => {
+        const ring = pi.rows.find((r) => r.nodes.includes(st.base))?.nodes;
+        if (!ring || ring.length < 6) return;
+        const c = new THREE.Vector3();
+        for (const id of ring) c.add(P(id));
+        c.multiplyScalar(1 / ring.length);
+        const up = crown ? crown.clone().sub(c).normalize() : new THREE.Vector3(0, 1, 0);
+        const j0 = ring.indexOf(st.base);
+        const dir = k < half ? 1 : -1;
+        const tier = k < half ? half - 1 - k : k - half;
+        // a twisted strand is much shorter than its chain; it reaches round the side of the head
+        const steps = Math.max(3, Math.min(Math.round(st.len * 0.22), Math.round(ring.length * 0.32)));
+        const r = h * 0.85;
+        const pts: THREE.Vector3[] = [];
+        for (let s = 0; s <= steps; s++) {
+          const q = P(ring[(((j0 + dir * s) % ring.length) + ring.length) % ring.length]);
+          const out = q.clone().sub(c);
+          out.addScaledVector(up, -out.dot(up)).normalize();
+          q.addScaledVector(out, r * 1.4 + tier * r * 0.3).addScaledVector(up, -tier * r * 1.3 - (s / steps) * r * 1.2);
+          pts.push(q);
+        }
+        const tube = new THREE.Mesh(
+          new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), steps * 4, r, 10, false),
+          this.markMat(`cord:${st.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(st.color), roughness: 0.9 })),
+        );
+        this.markers.add(tube);
+      });
+    }
     for (const m of this.model.markers) {
       const p = new THREE.Vector3(
         (pos[m.a * 3] + pos[m.b * 3]) / 2, (pos[m.a * 3 + 1] + pos[m.b * 3 + 1]) / 2, (pos[m.a * 3 + 2] + pos[m.b * 3 + 2]) / 2,
@@ -367,16 +456,37 @@ export class CrochetView {
         const r = m.sizeMm / 2;
         const eye = new THREE.Mesh(
           new THREE.SphereGeometry(r, 24, 16),
-          new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05 }),
+          this.markMat('eye', () => new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05 })),
         );
         eye.scale.set(1, 1, 0.6);
         eye.position.copy(p).addScaledVector(n, r * 0.25);
         eye.lookAt(p.clone().addScaledVector(n, 10));
         this.markers.add(eye);
+      } else if (m.what === 'nose') {
+        // a few stitches wrapped over one stitch in the face's own yarn: a small round bump
+        const r = this.model.sizing.w * 0.32;
+        const c = new THREE.Color(m.color ?? '#1a1a1a');
+        if (m.color) c.multiplyScalar(0.93);
+        const nose = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), this.markMat(`nose:${m.color}`, () => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 })));
+        nose.scale.set(1.25, 0.9, 0.7);
+        nose.position.copy(p).addScaledVector(n, r * 0.45);
+        nose.lookAt(p.clone().addScaledVector(n, 10));
+        this.markers.add(nose);
+      } else if (m.what === 'cheek') {
+        // blush: a soft flat oval just on the surface
+        const r = this.model.sizing.w * 0.55;
+        const cheek = new THREE.Mesh(
+          new THREE.CircleGeometry(r, 20),
+          this.markMat(`cheek:${m.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(m.color ?? '#f2a7c3'), roughness: 1, transparent: true, opacity: 0.55, depthWrite: false })),
+        );
+        cheek.scale.set(1.3, 0.8, 1);
+        cheek.position.copy(p).addScaledVector(n, 1.0);
+        cheek.lookAt(p.clone().addScaledVector(n, 10));
+        this.markers.add(cheek);
       } else {
         const brow = new THREE.Mesh(
           new THREE.CapsuleGeometry(1.2, (this.model.sizing.w * 0.9), 4, 8),
-          new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }),
+          this.markMat('line', () => new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })),
         );
         brow.position.copy(p).addScaledVector(n, 0.8);
         // lie along the surface, roughly horizontal

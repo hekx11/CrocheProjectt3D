@@ -1,7 +1,7 @@
 import type { Pattern } from '../model/types';
 import { buildGraph, type StitchGraph } from '../graph/build';
 import { computeSizing, type Sizing, type UserMaterials } from './sizing';
-import { seed, type MarkerAnchor } from './seed';
+import { isUpright, seed, type MarkerAnchor } from './seed';
 import { triangulate } from './mesh';
 import type { SolverInput } from './solver';
 
@@ -42,9 +42,16 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     }
   }
 
-  const all = [...graph.edges, ...s.seamEdges];
+  const all = [...graph.edges, ...s.seamEdges.filter((e) => e.stick === undefined)];
+  const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
+  const stick = new Float32Array(sticks.length * 3);
+  sticks.forEach((e, i) => stick.set([e.a, e.b, e.stick!], i * 3));
   const stuffedNode = new Uint8Array(graph.nodes.length);
   for (const pi of graph.instances) if (pi.stuffed > 0) for (const id of pi.nodeIds) stuffedNode[id] = 1;
+  // the open edge of a stuffed piece is sewn to something (a head, a lid): it keeps its length
+  for (const pi of graph.instances) {
+    if (pi.stuffed > 0 && pi.piece.finish !== 'closed') for (const id of pi.rows[pi.rows.length - 1]?.nodes ?? []) stuffedNode[id] = 0;
+  }
   const edges = new Float32Array(all.length * 5);
   const give = new Float32Array(all.length);
   all.forEach((e, i) => {
@@ -54,6 +61,19 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     edges.set([e.a, e.b, e.rest, STIFF[e.kind], slack], i * 5);
   });
   const fixed = new Uint8Array(graph.nodes.length);
+  const wrapped = (pi: (typeof graph.instances)[number]) => pi.stuffed === 0 && pi.piece.construction === 'rows' && pattern.seams.some((q) => q.piece === pi.piece.id && q.hint === 'wrap');
+  // a hat's brim: rounds after a front-loop round, the last much wider than the fold
+  const brimOf = (pi: (typeof graph.instances)[number]) => {
+    if (pi.stuffed > 0 || pi.piece.construction === 'rows') return undefined;
+    const rs = pi.rows.filter((r) => r.row > 0 && r.nodes.length);
+    for (let k = rs.length - 1; k >= Math.max(1, rs.length - 4); k--) {
+      if (rs[k].loop === 'FLO' && rs[rs.length - 1].nodes.length >= rs[k].nodes.length * 1.4) {
+        const rings = rs.slice(k + 1).map((r) => r.nodes);
+        return { top: rs[0].nodes, fold: rs[k].nodes, rings, radius: rings.map((r) => r.reduce((a, id) => a + graph.nodes[id].w, 0) / (2 * Math.PI) * 0.92) };
+      }
+    }
+    return undefined;
+  };
   const instances = graph.instances.map((pi) => {
     let h = 0;
     for (const id of pi.nodeIds) h += graph.nodes[id].h;
@@ -73,8 +93,16 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     return {
       nodeIds: pi.nodeIds,
       stuffed: pi.stuffed,
+      // a flat circle worked in rounds (a coaster): every closed round, for rounding out
+      brim: brimOf(pi),
+      rings: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes) : undefined,
+      // (and a strip wrapped round something, a veil or a collar, hangs from where it is tied)
+      // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
+      drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : wrapped(pi) ? 0.012 : 0,
       closed: pi.piece.finish === 'closed',
-      flat: pi.flat,
+      shape: pi.piece.shape,
+      // a strip wrapped round something (a collar, a scarf, a veil) is bent round it, not flat
+      flat: pi.flat && !wrapped(pi),
       side,
       planeNormal,
       hAvg: h / Math.max(1, pi.nodeIds.length),
@@ -86,6 +114,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     smoothing: Math.min(0.35, 0.08 * sizing.stiffness),
     fixed,
     give,
+    stick,
   };
   return { pattern, sizing, graph, tris, triPiece, markers: s.markers, solverInput };
 }
