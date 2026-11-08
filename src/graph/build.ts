@@ -121,7 +121,8 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
           for (const t of s.targets) {
             const tid = prevWork[t];
             if (tid === undefined) continue;
-            edges.push({ a: tid, b: id, kind: 'into', rest: sz.h * hf });
+            // stuffing stretches the fabric: stitches open up in height (a firmly stuffed sc ball comes out round)
+            edges.push({ a: tid, b: id, kind: 'into', rest: sz.h * hf * (1 + 0.16 * pi.stuffed) });
             const pidx = prodIndexOf.get(tid) ?? -1;
             if (anchor < 0) anchor = pidx;
           }
