@@ -89,6 +89,18 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
   take(/\bjoin(?:ing)?\b(?:\s+with\s+(?:a\s+)?slst)?[^,;]*/, () => (res.join = true));
   while (take(/\bturn\b/, () => (res.turn = true)));
 
+  // --- "working in back loops only, …" sets the loop for the whole row -------
+  let rowLoop: Loop = 'both';
+  take(/^\s*(?:working\s+|work\s+)?(blo|flo)\b\s*(?:throughout|for this (?:round|row|rnd))?\s*[,:]/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
+  take(/[,;]?\s*(?:working\s+|work\s+)(blo|flo)\s*$/, (m) => (rowLoop = m[1] === 'blo' ? 'BLO' : 'FLO'));
+
+  // --- "decrease 6 sts evenly", "6 inc evenly around", "dec evenly 6 times" --
+  let evenly: { change: 'inc' | 'dec'; k: number } | null = null;
+  take(/(?:(\d+)\s*)?\b(inc|dec)\s*(?:(\d+)\s*)?(?:st\s*)?(?:times\s*)?evenly(?:\s*spaced)?(?:\s*(?:around|across|over the (?:round|row)))?(?:\s*(\d+)\s*times)?/, (m) => {
+    const k = +(m[1] ?? m[3] ?? m[4] ?? 0);
+    if (k > 0) evenly = { change: m[2] as 'inc' | 'dec', k };
+  });
+
   // --- star repeats: *X; rep from * around / N more times / N times ------
   s = s.replace(/\*([^*]+?)[;,]?\s*rep\s*(?:from\s*)?\*?\s*(around|across|to end|(\d+)\s*more times|(\d+)\s*times)?/g, (_m, body, kind, more, times) => {
     if (more) return ` [ ${body} ] x ${+more + 1} `;
@@ -128,8 +140,21 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     kind: 'stitch', type, target, loop, tension, consumes, src: opts.src,
   });
 
-  function readRep(): number | 'around' | null {
+  type Rep = number | 'around' | { leave: number };
+  function readRep(): Rep | null {
     const t = peek();
+    // "until 2 st remain", "to last 3 st", "to last st", "until 1 st left"
+    if (t === 'until' || (t === 'to' && (peek(1) === 'last' || (peek(1) === 'the' && peek(2) === 'last')))) {
+      let q = pos + 1;
+      if (toks[q]?.t === 'the') q++;
+      if (toks[q]?.t === 'last') q++;
+      let leave = 1;
+      if (/^\d+$/.test(toks[q]?.t ?? '')) leave = +toks[q++].t;
+      if (toks[q]?.t === 'st' || toks[q]?.t === 'ch') q++;
+      if (/^(remain|remaining|left|unworked)$/.test(toks[q]?.t ?? '')) q++;
+      pos = q;
+      return { leave };
+    }
     if (t === 'x' || t === '*') {
       if (isNum(peek(1))) { pos += 2; return +toks[pos - 1].t; }
     }
@@ -138,8 +163,12 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     return null;
   }
 
-  function wrap(ops: Op[], rep: number | 'around' | null): Op[] {
+  function wrap(ops: Op[], rep: Rep | null): Op[] {
     if (rep === null) return ops;
+    // "sc in each st around until 2 st remain": the "around" stops early
+    if (typeof rep === 'object' && ops.length === 1 && ops[0].kind === 'repeat' && ops[0].times === 'around') {
+      return [{ ...ops[0], times: rep }];
+    }
     if (rep === 'around' && depth > 0) nestedAround = true;
     return [{ kind: 'repeat', ops, times: rep, src: opts.src }];
   }
@@ -166,8 +195,15 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     if (t === '(' || t === '[') {
       pos++;
       depth++;
-      const inner = parseSeq(t === '(' ? ')' : ']');
+      let inner = parseSeq(t === '(' ? ')' : ']');
       depth--;
+      // "(sc, ch 2, sc) in next st": the whole group goes into one stitch
+      if (peek() === 'in' && /^(next|same|first|last|st|ch)$/.test(peek(1) ?? '') && !isNum(peek(2))) {
+        pos++;
+        const w = next()!;
+        if (w !== 'st' && w !== 'ch' && (peek() === 'st' || peek() === 'ch')) pos++;
+        inner = intoOne(inner, w === 'same');
+      }
       const rep = readRep();
       if (rep === 'around' && containsAround(inner)) return inner;
       return wrap(inner, rep);
@@ -188,7 +224,7 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     let n = 1;
     let hasN = false;
     let tension = 1;
-    let loop: Loop = 'both';
+    let loop: Loop = rowLoop;
     if (isNum(peek())) { n = +next()!; hasN = true; }
     while (peek() === 'loose' || peek() === 'tight' || peek() === 'blo' || peek() === 'flo') {
       const w = next()!;
@@ -319,6 +355,14 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
 
   let ops = parseSeq();
 
+  if (evenly) {
+    // The base stitch comes from "sc around, …"; a plain pass around is replaced by the even spread.
+    const e = evenly as { change: 'inc' | 'dec'; k: number };
+    const base = findBase(ops);
+    ops = ops.filter((o) => !(o.kind === 'repeat' && o.times === 'around'));
+    ops.push({ kind: 'evenly', change: e.change, k: e.k, stitch: base?.type && base.type !== 'ch' ? base.type : 'sc', loop: base?.loop ?? rowLoop, tension: base?.tension ?? 1, src: opts.src });
+  }
+
   // A leading "ch N" in rows / joined rounds is a turning or starting chain.
   if (opts.leadingChIsTurning && ops.length && ops[0].kind === 'stitch' && ops[0].type === 'ch') {
     let n = 0;
@@ -332,6 +376,25 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
   if (!meaningful && !res.colorChange && !res.fastenOff && !res.join && !res.turn) res.unreadable = true;
   if (!meaningful && (res.colorChange || res.join)) res.unreadable = ops.length === 0 && !res.turn && !res.join;
   return res;
+}
+
+/** All stitches of a group worked into one stitch: the first takes a new stitch, the rest go into the same one. */
+function intoOne(ops: Op[], same: boolean): Op[] {
+  let first = !same;
+  return ops.map((o) => {
+    if (o.kind !== 'stitch' || o.type === 'ch') return o;
+    const target: Target = first ? { kind: 'next' } : { kind: 'same' };
+    first = false;
+    return { ...o, target, consumes: 1 };
+  });
+}
+
+function findBase(ops: Op[]): Extract<Op, { kind: 'stitch' }> | undefined {
+  for (const o of ops) {
+    if (o.kind === 'stitch') return o;
+    if (o.kind === 'repeat') { const f = findBase(o.ops); if (f) return f; }
+  }
+  return undefined;
 }
 
 function containsAround(ops: Op[]): boolean {
@@ -370,7 +433,32 @@ export function execute(ops: Op[], prevCount: number, ringMode: boolean): ExecRe
       if (guard.n++ > 20000) return;
       if (op.kind === 'turning-ch') { turningCh += op.n; continue; }
       if (op.kind === 'skip') { p += op.n; continue; }
+      if (op.kind === 'evenly') {
+        // Spread k inc/dec over the stitches that are left, as evenly as whole stitches allow.
+        const rem = ringMode ? 0 : Math.max(0, N - p);
+        const per = op.change === 'inc' ? 1 : 2;
+        const plain = Math.max(0, rem - op.k * per);
+        const unit = (n: number): Op[] => [
+          ...Array.from({ length: n }, (): Op => ({ kind: 'stitch', type: op.stitch, target: { kind: 'next' }, loop: op.loop, tension: op.tension, consumes: 1, src: op.src })),
+          ...(op.change === 'inc'
+            ? [{ kind: 'stitch', type: op.stitch, target: { kind: 'next' }, loop: op.loop, tension: op.tension, consumes: 1, src: op.src }, { kind: 'stitch', type: op.stitch, target: { kind: 'same' }, loop: op.loop, tension: op.tension, consumes: 1, src: op.src }] as Op[]
+            : [{ kind: 'stitch', type: op.stitch, target: { kind: 'next' }, loop: op.loop, tension: op.tension, consumes: 2, src: op.src }] as Op[]),
+        ];
+        for (let i = 0; i < op.k; i++) run(unit(Math.floor(((i + 1) * plain) / op.k) - Math.floor((i * plain) / op.k)), guard);
+        continue;
+      }
       if (op.kind === 'repeat') {
+        if (typeof op.times === 'object') {
+          // "sc in each st until 2 sts remain" / "to last 3 sts"
+          const stop = N - op.times.leave;
+          let safety = 0;
+          while (!ringMode && p < stop && safety++ < 5000) {
+            const before = p;
+            run(op.ops, guard);
+            if (p === before) break;
+          }
+          continue;
+        }
         if (op.times === 'around') {
           if (ringMode) { run(op.ops, guard); continue; }
           let safety = 0;

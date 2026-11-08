@@ -9,7 +9,6 @@ import { CrochetView } from './render/scene';
 import type { Pattern } from './model/types';
 import { renderOutline } from './ui/outline';
 import { importPdf, renderPage } from './pdf/extract';
-import { setupAi, HELP_CODES } from './ui/ai';
 
 import ball from '../fixtures/ball.txt?raw';
 import bear from '../fixtures/bear-head.txt?raw';
@@ -146,10 +145,10 @@ function rebuild(force: boolean) {
   const diags: CmDiagnostic[] = pattern.diagnostics.map((d) => ({
     from: Math.min(d.src.from, text.length), to: Math.min(Math.max(d.src.to, d.src.from), text.length),
     severity: d.severity, message: d.message,
-    actions: HELP_CODES.has(d.code) ? [{ name: 'Ask AI', apply: () => ai.ask(d.line) }] : undefined,
+    actions: d.readings?.map((r) => ({ name: d.readings!.length > 1 ? `Use ${r}` : 'Keep this reading', apply: () => pickReading(d.line, r) })),
   }));
   editor.dispatch(setDiagnostics(editor.state, diags));
-  renderOutline($('outline'), $('outline-summary'), pattern, (line) => gotoLine(line), (line) => ai.ask(line));
+  renderOutline($('outline'), $('outline-summary'), pattern, (line) => gotoLine(line), pickReading);
 
   const topology = JSON.stringify([pattern.pieces.map((p) => [p.name, p.quantity, p.rows.map((r) => [r.computedCount, r.yarnId, r.line])]), pattern.seams.length, user]);
   if (!force && topology === lastTopology) return;
@@ -189,15 +188,14 @@ view.onPick = (line) => {
 };
 void activeLineDeco;
 
-// ---------------------------------------------------------------- AI helper (optional, user's own key)
-const ai = setupAi({
-  text: () => editor.state.doc.toString(),
-  pattern: () => pattern,
-  replaceLine(line, text) {
-    const l = editor.state.doc.line(line + 1);
-    editor.dispatch({ changes: { from: l.from, to: l.to, insert: text } });
-  },
-});
+// ---------------------------------------------------------------- picking a reading
+/** Write the chosen reading on the line as "=> short syntax", so the text stays the single source of truth. */
+function pickReading(line: number, reading: string) {
+  const l = editor.state.doc.line(line + 1);
+  const ann = l.text.indexOf('=>');
+  const body = (ann >= 0 ? l.text.slice(0, ann) : l.text).trimEnd();
+  editor.dispatch({ changes: { from: l.from, to: l.to, insert: `${body}  => ${reading}` } });
+}
 
 // ---------------------------------------------------------------- toolbar
 const ex = $('examples') as HTMLSelectElement;

@@ -46,7 +46,10 @@ export type Target =
 export type Op =
   | { kind: 'stitch'; type: StitchType; target: Target; loop: Loop; tension: number; consumes: number; src: Span }
   | { kind: 'skip'; n: number; src: Span }
-  | { kind: 'repeat'; ops: Op[]; times: number | 'around'; src: Span }
+  /** times: a count, 'around' (until the previous row runs out) or { leave: n } (until n stitches remain). */
+  | { kind: 'repeat'; ops: Op[]; times: number | 'around' | { leave: number }; src: Span }
+  /** "increase/decrease k stitches evenly": spread k inc/dec over what is left of the previous row. */
+  | { kind: 'evenly'; change: 'inc' | 'dec'; k: number; stitch: StitchType; loop: Loop; tension: number; src: Span }
   | { kind: 'turning-ch'; n: number; src: Span };
 
 export interface RowDef {
@@ -111,6 +114,8 @@ export interface Diagnostic {
   message: string;
   line: number;
   src: Span;
+  /** Readings in short syntax the user can pick from; picking one writes "=> reading" on the line. */
+  readings?: string[];
 }
 
 export interface LineInfo {

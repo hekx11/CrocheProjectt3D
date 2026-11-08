@@ -141,6 +141,7 @@ function avgHeightFactor(r: PieceDef['rows'][number]): number {
 function findStitch(ops: any[]): any {
   for (const o of ops) {
     if (o.kind === 'stitch' && o.type !== 'ch') return o;
+    if (o.kind === 'evenly') return { type: o.stitch, tension: o.tension, loop: o.loop };
     if (o.kind === 'repeat') { const f = findStitch(o.ops); if (f) return f; }
   }
   return null;

@@ -103,6 +103,48 @@ function looksLikeHeading(line: string): boolean {
   return true;
 }
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Previous row's stitch count as the next row sees it (shared with the row loop). */
+function prevOf(piece: PieceDef): { prevCount: number; ringMode: boolean } {
+  const prev = piece.rows[piece.rows.length - 1];
+  const ringMode = !prev && (piece.start.kind === 'magic-ring' || (piece.start.kind === 'chain' && piece.start.ring));
+  const prevCount = prev ? prev.computedCount : piece.start.kind === 'chain' && !piece.start.ring ? piece.start.n : 0;
+  return { prevCount, ringMode };
+}
+
+/** "repeat rnd 3", "rep row 3", "as rnd 11", "work as for round 3", "repeat the previous round". */
+export function rowReference(n: string): number | 'previous' | null {
+  const t = n.replace(/[.,;]\s*$/, '').trim();
+  const m = /^(?:rep|work|same|as)\b(?:\s+(?:as|for|the same as|same as))*\s*(?:rnd|round|row|r)\.?\s*(\d+)$/.exec(t);
+  if (m) return +m[1];
+  if (/^(?:rep|work)\s+(?:the\s+)?(?:previous|last|prev)\s+(?:rnd|round|row)$/.test(t)) return 'previous';
+  return null;
+}
+
+/**
+ * Other readings of a line whose count doesn't match: the scope of a trailing "x6",
+ * and "repeat N times" meaning N more times (or the reverse). Each is written in short syntax with the stated count.
+ */
+export function alternatives(instr: string, count: number): string[] {
+  const body = instr.replace(/\s*[\[({]\s*\d+[^\])}]*[\])}]\s*\.?\s*$/, '').trim().replace(/[.]$/, '');
+  const out = new Set<string>();
+  const scope = /^(.+?)\s*(?:x|\*|×)\s*(\d+)\s*$/i.exec(body) ?? /^(.+?)\s+(\d+)\s+times$/i.exec(body);
+  if (scope && !/[()\[\]*]/.test(scope[1]) && /,/.test(scope[1])) out.add(`(${scope[1].trim()}) x${scope[2]}`);
+  const times = /\b(rep(?:eat)?(?:\s+from\s+\*)?)\s+(\d+)\s+times\b/i.exec(body);
+  if (times && !/more\s+times/i.test(body)) out.add(body.replace(times[0], `${times[1]} ${times[2]} more times`));
+  const more = /\b(\d+)\s+more\s+times\b/i.exec(body);
+  if (more) out.add(body.replace(more[0], `${more[1]} times`));
+  return [...out].map((a) => `${a} (${count})`);
+}
+
+const HARMLESS = new Set(['st', 'times', 'x', 'around', 'across', 'evenly', 'spaced', 'in', 'on', 'at', 'for', 'into', 'remain', 'remaining', 'left', 'last', 'first', 'next', 'same', 'space', 'sp', 'hook', 'from', 'up', 'over', 'beg', 'beginning', 'top', 'base', 'end', 'only', 'loop', 'loops', 'with', 'yarn', 'still', 'again', 'now', 'here', 'there', 'just', 'so', 'should', 'will', 'have', 'you', 'your', 'finish', 'start']);
+
+function meaningfulIgnored(ignored: string[]): string[] {
+  const words = ignored.join(' ').split(/\s+/).filter((w) => /[a-z0-9]/.test(w));
+  return words.some((w) => !HARMLESS.has(w.replace(/[^a-z0-9-]/g, ''))) ? words : [];
+}
+
 function sentences(line: string): { text: string; from: number }[] {
   const out: { text: string; from: number }[] = [];
   const re = /[^.!?]+(?:[.!?]+|$)/g;
@@ -220,7 +262,43 @@ export function parsePattern(text: string): Pattern {
       lastLabel = b;
 
       const leadingChIsTurning = piece.construction === 'rows' || piece.construction === 'joined-rounds' || /^\s*ch \d+\s*,/.test(normalized) && piece.rows.length > 0 && piece.start.kind === 'chain';
-      const parsed = parseRowText(instr, { terms, leadingChIsTurning, src: lineSrc });
+      const rowOpts = { terms, leadingChIsTurning, src: lineSrc };
+      let parsed = parseRowText(instr, rowOpts);
+      const notesHere: string[] = [];
+      let readings: string[] | undefined;
+      let pickNeeded = false;
+
+      // "Repeat rnd 3." / "Rnds 12-15: as rnd 11" / "repeat the previous round": copy that row's stitches.
+      const ref = rowReference(normalized);
+      if (ref) {
+        const target = ref === 'previous' ? piece.rows[piece.rows.length - 1] : piece.rows[(resolveRow(piece, ref, li, lineSrc) ?? 0) - 1];
+        if (target) {
+          parsed = { ...parsed, ops: target.ops, unreadable: false, ignored: [], assumptions: [] };
+          notesHere.push(`same stitches as ${piece.construction === 'rows' ? 'row' : 'rnd'} ${target.label}`);
+        }
+      }
+
+      // Count-guided search: when the stated count doesn't match, try the other ways the line can be read.
+      if (parsed.expectedCount && !parsed.unreadable) {
+        const { prevCount, ringMode } = prevOf(piece);
+        const want = parsed.expectedCount;
+        const countFor = (pr: typeof parsed) => countOf(execute(pr.ops, prevCount, ringMode), want.unit);
+        if (countFor(parsed) !== want.n) {
+          const hits = alternatives(instr, want.n)
+            .map((a) => ({ a, pr: parseRowText(a, rowOpts) }))
+            .filter((x) => !x.pr.unreadable && countFor(x.pr) === want.n);
+          if (hits.length) {
+            const keepCount = parsed.expectedCount;
+            parsed = { ...hits[0].pr, expectedCount: keepCount, colorChange: parsed.colorChange ?? hits[0].pr.colorChange };
+            readings = hits.map((h) => h.a);
+            if (hits.length === 1) notesHere.push(`read as "${hits[0].a}", the only reading that gives ${want.n}`);
+            else pickNeeded = true;
+          } else if (want.unit === 'st' && execute(parsed.ops, prevCount, ringMode).stitches.length === want.n) {
+            notesHere.push(`the stated count ${want.n} includes the chains`);
+            parsed = { ...parsed, expectedCount: { n: countFor(parsed), unit: 'st' } };
+          }
+        }
+      }
       if (parsed.colorChange) yarnId = ensureYarn(parsed.colorChange);
       if (parsed.turn) piece.construction = 'rows';
       if (parsed.join && piece.construction === 'spiral') piece.construction = 'joined-rounds';
@@ -248,16 +326,24 @@ export function parsePattern(text: string): Pattern {
           if (parsed.unreadable) {
             status = 'unreadable';
             diagnostics.push({ severity: 'error', code: 'unknown-token', line: li, src: lineSrc, message: `Couldn't read this instruction. Add "=> …" with short syntax, e.g. "=> 18 sc".` });
+          } else if (pickNeeded && readings) {
+            status = 'ambiguous';
+            diagnostics.push({ severity: 'warning', code: 'ambiguous', line: li, src: lineSrc, readings, message: `This can be read ${readings.length} ways that all give ${parsed.expectedCount?.n}. Showing the first; pick the one you mean.` });
           } else if (parsed.expectedCount && parsed.expectedCount.n !== computed) {
             status = 'ambiguous';
             diagnostics.push({ severity: 'warning', code: 'count-mismatch', line: li, src: lineSrc, message: `I count ${computed} ${parsed.expectedCount.unit === 'loops' ? 'loops' : 'stitches'}, the pattern says ${parsed.expectedCount.n}.${ex.leftover ? ` ${ex.leftover} stitch(es) of the previous row left unworked.` : ''}${ex.overflow ? ` Ran out of stitches ${ex.overflow}×.` : ''}` });
           } else {
-            const notes = [...parsed.assumptions];
-            if (parsed.ignored.length) notes.push(`ignored: "${parsed.ignored.join(' ')}"`);
+            const notes = [...notesHere, ...parsed.assumptions];
+            const skipped = meaningfulIgnored(parsed.ignored);
+            if (skipped.length) {
+              // Never drop words silently: the count may only match because something was left out.
+              status = 'ambiguous';
+              diagnostics.push({ severity: 'warning', code: 'unknown-token', line: li, src: lineSrc, message: `Skipped words I couldn't read: "${skipped.join(' ')}". If they matter, add "=> …" with short syntax.` });
+            } else if (parsed.ignored.length) notes.push(`ignored: "${parsed.ignored.join(' ')}"`);
             if (!parsed.expectedCount && ex.leftover > 0 && prev) notes.push(`${ex.leftover} stitch(es) of the previous row left unworked`);
             if (notes.length) {
-              status = 'assumption';
-              diagnostics.push({ severity: 'info', code: 'assumption', line: li, src: lineSrc, message: notes.join('; ') });
+              if (status === 'ok') status = 'assumption';
+              diagnostics.push({ severity: 'info', code: 'assumption', line: li, src: lineSrc, readings, message: cap(notes.join('; ')) + '.' });
             }
           }
         }
