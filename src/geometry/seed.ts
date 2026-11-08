@@ -1,4 +1,5 @@
 import type { Pattern, Seam } from '../model/types';
+import { COLORS } from '../model/dictionary';
 import type { GEdge, GRow, PieceInstance, StitchGraph } from '../graph/build';
 
 export interface MarkerAnchor {
@@ -7,6 +8,10 @@ export interface MarkerAnchor {
   b: number;
   sizeMm: number;
   line: number;
+  /** embroidery: what it is (a nose is a small bump, cheeks soft blush, else a dark line) and the
+   *  colour of the yarn it is stitched in, when the text names one */
+  what?: 'nose' | 'cheek' | 'line';
+  color?: string;
 }
 
 export interface Seeded {
@@ -142,6 +147,19 @@ function nearestByAngle(g: StitchGraph, angle: Float32Array, ids: number[], targ
   return best;
 }
 
+/** The yarn colour an embroidery is stitched in: a yarn of the pattern named in the text, or a colour word. */
+function markColor(p: Pattern, text: string): string | undefined {
+  const t = text.toLowerCase();
+  let best: { at: number; c: string } | undefined;
+  const consider = (word: string, c: string) => {
+    const at = t.indexOf(word.toLowerCase());
+    if (word.length > 2 && at >= 0 && (!best || word.length > 0 && at < best.at)) best = { at, c };
+  };
+  for (const y of p.materials.yarns) consider(y.label.replace(/\s*yarn$/i, ''), y.color);
+  if (!best) for (const [k, c] of Object.entries(COLORS)) consider(k, c);
+  return best?.c;
+}
+
 function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAnchor[] {
   const out: MarkerAnchor[] = [];
   for (const pi of g.instances) {
@@ -154,9 +172,12 @@ function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAn
       const half = ((m.spacingSts ?? 6) / 2) * (TAU / n) + (m.kind === 'safety-eyes' ? 0 : 0);
       // a nose is one mark in the middle; eyes and cheeks come in pairs
       const sides = m.kind === 'embroidery' && /\bnose\b/i.test(m.text) && !/eye|cheek/i.test(m.text) ? [0] : [-1, 1];
+      const what = m.kind !== 'embroidery' ? undefined : /\bcheek|blush/i.test(m.text) ? 'cheek' : sides.length === 1 ? 'nose' : 'line';
+      const color = m.kind === 'embroidery' ? markColor(p, m.text) : undefined;
       for (const side of sides) {
         const th = FRONT + side * half;
         out.push({
+          what, color,
           kind: m.kind,
           a: nearestByAngle(g, angle, ra, th),
           b: nearestByAngle(g, angle, rb, th),
@@ -234,6 +255,19 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
     insts.forEach((pi, k) => {
       if (placed.has(pi)) return;
       attach(g, p, seam, host, pi, k, insts.length, pos, angle, w, seamEdges, planes);
+      placed.add(pi);
+    });
+  }
+  // chain strands (suspenders, straps): from their start on the host, over the shoulder, down
+  // the front
+  for (const pc of p.pieces) {
+    if (!pc.strap || pc.rows.length) continue;
+    const host = byPiece(pc.strap.host)[0];
+    if (!host) continue;
+    const insts = byPiece(pc.id);
+    insts.forEach((pi, k) => {
+      union(host, pi);
+      attachStrap(g, host, pi, k, insts.length, pc.strap!.row, pc.strap!.back, pos, angle, w, seamEdges);
       placed.add(pi);
     });
   }
@@ -409,8 +443,10 @@ function attach(
   if (!region.length) return;
   const nAround = region[Math.floor(region.length / 2)].nodes.length;
   // angle from hint words; several instances spread symmetrically around the front
+  // arms hanging at the sides sit a little forward of the side seam, as they do on a doll
+  const hangs = pi.piece.flatten && pi.stuffed === 0 && seam.hint === 'side' && pi.rows.length >= 6;
   const spread = seam.hint === 'side' || (seam.hint === 'default' && count > 1)
-    ? Math.PI / 2
+    ? Math.PI / 2 - (hangs ? 0.3 : 0)
     : seam.spacingSts ? ((seam.spacingSts / 2 + 2) * TAU) / nAround : Math.PI / 3;
   let th = seam.hint === 'back' ? FRONT + Math.PI : FRONT;
   if (count === 2) th += k === 0 ? -spread : spread;
@@ -422,9 +458,24 @@ function attach(
   const topCentre = seam.hint === 'top' && count === 1 && seam.rowA === undefined;
   const topRows = up ? host.rows.slice(-2) : host.rows.filter((r) => r.row > 0).slice(0, 2);
   const near = topCentre ? topRows.flatMap((r) => r.nodes) : hostIds.filter((id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < TAU / 10);
-  const target = centroid(pos, near.length ? near : hostIds);
+  let target = centroid(pos, near.length ? near : hostIds);
   const hostC = centroid(pos, host.nodeIds);
   let normal = topCentre ? [0, 1, 0] as V : norm([target[0] - hostC[0], 0, target[2] - hostC[2]]);
+  // "sew the hat to the top side of the head": on top, tipped over to one side (the doll's left)
+  if (topCentre && /\btop side\b|\bto (?:one|the) side\b|\btilt|\bat an angle\b/i.test(seam.text)) {
+    const ordered = up ? [...hostRows].reverse() : hostRows;
+    const headIds = ordered.slice(0, Math.max(3, Math.round(ordered.length * 0.3))).flatMap((r) => r.nodes).filter((id) => !g.nodes[id].virtual);
+    const hc = centroid(pos, headIds);
+    const tilt = norm([0.36, 0.93, 0]);
+    let best = headIds[0], bd = -Infinity;
+    for (const id of headIds) { const d = dot(sub(get(pos, id), hc), tilt); if (d > bd) { bd = d; best = id; } }
+    target = get(pos, best);
+    normal = tilt;
+  }
+  // something sewn on over a cap (a hat over the hair) sits on the cap, not under it
+  const capped = p.seams.some((q) => q.host === host.piece.id && q.piece !== pi.piece.id && (q.hint === 'top' || q.hint === 'default') && q.rowA === undefined
+    && g.instances.some((c) => c.piece.id === q.piece && isCap(host, c)));
+  const overCap = capped && topCentre ? (g.nodes[host.nodeIds[host.nodeIds.length - 1]].h || w) * 1.2 : 0;
   // a flattened piece (e.g. ears) lies in the plane that contains its axis and faces the front
   const front: V = [0, 0, 1];
   const faceN = norm(sub(front, mul(normal, dot(front, normal))));
@@ -477,7 +528,7 @@ function attach(
     const roll = rotator(zProj, wantN);
     rot = (v: V) => roll(rot0(v));
   }
-  const radiusOut = w * 0.4;
+  const radiusOut = w * 0.4 + overCap;
   const dest = add(target, mul(normal, radiusOut));
   for (const id of pi.nodeIds) {
     const v = rot(sub(get(pos, id), eC));
@@ -509,8 +560,51 @@ function attach(
       const dd = dot(d, d);
       if (dd < bd) { bd = dd; best = hid; }
     }
-    seamEdges.push({ a: id, b: best, kind: 'seam', rest: Math.min(Math.max(Math.sqrt(bd), w * 0.25), w * 0.8) });
+    seamEdges.push({ a: id, b: best, kind: 'seam', rest: Math.min(Math.max(Math.sqrt(bd), w * 0.25), w * 0.8 + overCap) });
   }
+}
+
+/**
+ * A chain strand laid over the host: it starts on its round (at the back, a little off centre),
+ * runs up to the shoulder at the side (just under the neck: the narrowest round), and comes down
+ * the front to the same round, where it is sewn. Every chain lies just on the surface.
+ */
+function attachStrap(
+  g: StitchGraph, host: PieceInstance, pi: PieceInstance, k: number, count: number, row: number | undefined, back: boolean,
+  pos: Float32Array, angle: Float32Array, w: number, seamEdges: GEdge[],
+) {
+  const chain = pi.rows[0]?.nodes ?? [];
+  const rows = host.rows.filter((r) => r.row > 0 && r.nodes.length);
+  if (chain.length < 2 || rows.length < 4) return;
+  const up = isUpright(host);
+  // the round it starts on, and the neck (narrowest round in the middle of the piece)
+  let si = rows.findIndex((r) => r.row === row);
+  const from = Math.round(rows.length * 0.2), to = Math.round(rows.length * 0.8);
+  let ni = from;
+  for (let i = from; i <= to; i++) if (rows[i].nodes.length < rows[ni].nodes.length) ni = i;
+  if (si < 0) si = up ? Math.max(0, ni - 8) : Math.min(rows.length - 1, ni + 8);
+  // the shoulder: a round or two on the body side of the neck
+  const shi = Math.max(0, Math.min(rows.length - 1, si < ni ? ni - 1 : ni + 1));
+  const side = count === 1 ? 1 : k === 0 ? -1 : 1;
+  // round the body from the back (−z) past the side (±x) to the front (+z), as an angle from the
+  // back: a little off centre where it starts, wider apart where it is sewn at the front
+  const b0 = back ? 0.35 : Math.PI - 0.45, b2 = back ? Math.PI - 0.45 : 0.35;
+  const lift = (g.nodes[chain[0]].h || w) * 0.9;
+  const n = chain.length;
+  chain.forEach((id, i) => {
+    const t = i / (n - 1);
+    const u = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+    const phi = t < 0.5 ? b0 + (Math.PI / 2 - b0) * u : Math.PI / 2 + (b2 - Math.PI / 2) * u;
+    const dir: V = [side * Math.sin(phi), 0, -Math.cos(phi)];
+    const ri = Math.round(t < 0.5 ? si + (shi - si) * u : shi + (si - shi) * u);
+    const r = rows[Math.max(0, Math.min(rows.length - 1, ri))];
+    const rc = centroid(pos, r.nodes);
+    let b = r.nodes[0], bd = -Infinity;
+    for (const q of r.nodes) { const d = dot(norm(sub(get(pos, q), rc)), dir); if (d > bd) { bd = d; b = q; } }
+    const out = norm(sub(get(pos, b), rc));
+    pos.set(add(get(pos, b), mul(out, lift)), id * 3);
+    seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: lift });
+  });
 }
 
 /** An open round piece as wide as the host (hair, a cap): it goes over the host's top like a hat. */
@@ -564,6 +658,8 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
   // the crown (not sunk inside it) and every stitch is stuck to the patch of host right under it
   {
     const liftL = (g.nodes[edge[0]].h || 1) * 1.2;
+    // only for hair on a head with a face (eyes): tipped back by a few rounds
+    const tiltRows = eyes.length ? 3 : 0;
     // the stitch each stitch is worked into (short rows can work into older rounds too)
     const mine = new Set(pi.nodeIds), into = new Map<number, number>();
     for (const e of g.edges) if (e.kind === 'into' && mine.has(e.b) && !into.has(e.b)) into.set(e.b, e.a);
@@ -579,10 +675,25 @@ function attachCap(g: StitchGraph, host: PieceInstance, pi: PieceInstance, pos: 
         });
         return;
       }
-      const hr = order[Math.min(i, last)].nodes;
-      const hc = centroid(pos, hr);
+      const base = Math.min(i, last);
+      const hr = order[base].nodes;
+      const hc0 = centroid(pos, hr);
       r.nodes.forEach((id, j) => {
-        const hp = get(pos, hr[Math.floor((j * hr.length) / r.nodes.length) % hr.length]);
+        let hp = get(pos, hr[Math.floor((j * hr.length) / r.nodes.length) % hr.length]);
+        let hc = hc0;
+        // hair sits back on the head: higher over the forehead, lower at the back, more so
+        // towards the rim (none at the crown)
+        if (tiltRows > 0 && last > 0) {
+          const az = norm(sub(sub(hp, hc0), mul(axis, dot(sub(hp, hc0), axis))));
+          const k = Math.max(0, Math.min(order.length - 1, Math.round(base - tiltRows * az[2] * (base / last))));
+          if (k !== base) {
+            const kr = order[k].nodes;
+            hc = centroid(pos, kr);
+            let best = kr[0], bd = -Infinity;
+            for (const q of kr) { const d = dot(norm(sub(get(pos, q), hc)), az); if (d > bd) { bd = d; best = q; } }
+            hp = get(pos, best);
+          }
+        }
         const out = sub(hp, hc);
         const o = norm(Math.hypot(...out) > 1e-6 ? add(out, mul(axis, Math.hypot(...out) * 0.3)) : axis);
         pos.set(add(hp, mul(o, liftL * (1 + Math.max(0, i - last) * 0.5))), id * 3);

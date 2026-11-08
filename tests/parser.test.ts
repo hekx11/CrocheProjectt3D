@@ -299,3 +299,44 @@ F/O. Leave long tail for sewing.
     expect(p.pieces[2].rows[0].yarnId).toBe('pink');
   });
 });
+
+describe('chain straps, hosts with a where-clause, cheeks', () => {
+  const p = parsePattern(`Doll
+In gray yarn:
+BODY
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3 – 8: sc in all 12 st [12]
+EYES: Insert the safety eyes between round 6 and 7, with an interspace of 5 stitches.
+Embroider the cheeks with pink yarn.
+Fasten off.
+STRAPS
+Make 2, start in gray yarn:
+Pull up a loop of gray yarn in the first loop of round 3 at the back of the body.
+Ch 20, leaving a long yarn tail. You may need to bring the chain over the shoulders.
+TIE
+In gray yarn:
+Ch 6. Crochet in rows.
+Row 1: start in second ch from hook, sc in next 5 ch [5]
+Fasten off. Sew the tie to the front of the body, just below the head and in between the straps.
+`);
+  it('makes a chain-only piece that starts on the named round', () => {
+    const s = p.pieces.find((q) => q.name.toLowerCase().includes('strap'))!;
+    expect(s.quantity).toBe(2);
+    expect(s.rows.length).toBe(0);
+    expect(s.start).toMatchObject({ kind: 'chain', n: 20, ring: false }); // "bring" is not "ring"
+    expect(s.strap?.host).toBe(p.pieces[0].id);
+    expect(s.strap?.row).toBe(3);
+  });
+  it('sews to the piece named first, not one in a later where-clause', () => {
+    const tie = p.pieces.find((q) => q.name.toLowerCase().includes('tie'))!;
+    expect(p.seams.find((q) => q.piece === tie.id)?.host).toBe(p.pieces[0].id);
+  });
+  it('puts cheeks beside the eyes when no round is given', () => {
+    const cheeks = p.pieces[0].markers.filter((m) => m.kind === 'embroidery');
+    expect(cheeks.length).toBe(1);
+    expect(cheeks[0].rowA).toBe(6);
+    const eyes = p.pieces[0].markers.find((m) => m.kind === 'safety-eyes')!;
+    expect(cheeks[0].spacingSts).toBe((eyes.spacingSts ?? 6) + 6);
+  });
+});

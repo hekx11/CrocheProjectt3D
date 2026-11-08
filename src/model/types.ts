@@ -120,6 +120,9 @@ export interface PieceDef {
    * the chain before it.
    */
   base?: BasePart[];
+  /** A chain-only strand (a strap, a suspender, a string): no rows, just the chain. It starts on a
+   *  round of the host ("pull up a loop … in round 13 at the back") and is sewn down elsewhere. */
+  strap?: { host: string; row?: number; back: boolean };
   line: number;
 }
 

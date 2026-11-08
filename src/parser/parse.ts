@@ -240,6 +240,8 @@ export function parsePattern(text: string): Pattern {
   let piece: PieceDef | null = null;
   let pending: { name: string; quantity: number; color?: string; line: number } | null = null;
   let pendingStart: PieceDef['start'] | null = null;
+  /** "Pull up a loop … in round 13 at the back of the body": where a chain strand starts. */
+  let pendingLoop: { host: PieceDef; label?: number; back: boolean } | null = null;
   let yarnId = defaultYarn.id;
   let finished = false;
   let lastLabel: number | undefined;
@@ -511,7 +513,23 @@ export function parsePattern(text: string): Pattern {
     const ch = /^ch (\d+)\b(.*)$/.exec(n);
     if (ch && !/,\s*(sc|dc|hdc)/.test(ch[2])) {
       info.kind = 'start';
-      const start: PieceDef['start'] = { kind: 'chain', n: +ch[1], ring: /ring|join/.test(ch[2]) };
+      const start: PieceDef['start'] = { kind: 'chain', n: +ch[1], ring: /\bring\b|\bjoin/.test(ch[2]) };
+      // a chain on its own, started on another piece or left with a tail for sewing: a strap
+      if (!start.ring && (pending || finished || !piece) && (pendingLoop || /\bleav(?:e|ing)\b[^.]*\b(?:tail|end)\b/.test(ch[2])) && pieces.length) {
+        const host = pendingLoop?.host ?? mainPiece(pieces);
+        piece = newPiece(pending?.name ?? `Strap ${pieces.length + 1}`, pending?.quantity ?? 1, pending?.line ?? li);
+        piece.start = start;
+        piece.construction = 'rows';
+        piece.sections.push({ name: piece.name, firstRow: 1, yarnId: pending?.color ? ensureYarn(pending.color) : undefined, labelMap: new Map() });
+        if (pending?.color) yarnId = pending.color;
+        if (host) {
+          const row = pendingLoop?.label !== undefined ? resolveRow(host, pendingLoop.label, li, lineSrc) : undefined;
+          piece.strap = { host: host.id, row, back: pendingLoop?.back ?? true };
+        }
+        pending = null; pendingStart = null; pendingLoop = null;
+        finished = true; // just a chain: whatever comes next is another piece
+        continue;
+      }
       if (pending || finished || !piece) pendingStart = start;
       else if (piece.rows.length === 0) piece.start = start;
       else pendingStart = start;
@@ -547,6 +565,20 @@ export function parsePattern(text: string): Pattern {
       finished = false;
       info.kind = 'material';
       continue;
+    }
+    // "Pull up a loop of dark gray yarn in the first loop of round 13 at the back of the body"
+    // (no front/back loops: a strand starts here, not a piece grown from a whole round)
+    const loopAt = /\b(?:rnd|round|row)\s*(\d+)\b/i.exec(body);
+    if (loopAt && /pull up a loop|join (?:the |your |new )?yarn|attach (?:the |your |new )?yarn/i.test(body) && !/\b(front|back)\s+loops?\b/i.test(body) && pieces.length) {
+      const label = +loopAt[1];
+      const host = namedPiece(body.toLowerCase().replace(/\bthe back of\b|\bthe front of\b/g, ''), pieces) ?? [...pieces].reverse().find((q) => q.sections.some((sc) => sc.labelMap.has(label)));
+      if (host) {
+        pendingLoop = { host, label, back: !/\bfront\b/i.test(body) };
+        const c = colorFirst(body);
+        if (c && pending && !pending.color) pending.color = c;
+        info.kind = 'start';
+        continue;
+      }
     }
     // "Pull up a loop of white yarn in one of the leftover front loops of round 13 [of the body]"
     const grow = /\b(front|back)\s+loops?\b[^.]*?\b(?:of|from|on)\s+(?:the\s+)?(?:rnd|round|row|r)\.?\s*(\d+)/i.exec(body) ?? /\b(?:rnd|round|row)\s*(\d+)\b[^.]*\b(front|back)\s+loops?\b/i.exec(body);
@@ -641,7 +673,12 @@ export function parsePattern(text: string): Pattern {
         const hostText = prep ? after.slice(prep.index) : s;
         // "sew the ends together", "sew it closed": the piece itself, not a join
         if (!wrap && (/\bsew\b[^.]*\b(?:closed|shut)\b|\bsew (?:the |its )?ends together\b|\bsew (?:both |the |its )?edges\b|\broll(?:ed)? (?:it )?up\b|\bsew\b[^.]*\btogether to (?:secure|create|make|form)\b/.test(s))) continue;
-        const host = namedPiece(hostText, pieces, p) ?? mainPiece(pieces, p);
+        // the piece right after the preposition is the host; a later clause only says where on it
+        // ("to the front of the body, just below the head and in between the suspenders")
+        const lead = prep ? prep[0].length : 0;
+        const cut = /,|;|\b(?:just|right)\b|\b(?:in )?between\b|\bnext to\b|\bbelow\b|\babove\b|\bunder(?:neath)?\b|\bbeside\b/.exec(hostText.slice(lead));
+        const primary = cut ? hostText.slice(0, lead + cut.index) : hostText;
+        const host = namedPiece(primary, pieces, p) ?? namedPiece(hostText, pieces, p) ?? mainPiece(pieces, p);
         if (host) {
           const hint: Seam['hint'] = wrap ? 'wrap' : /\b(pom ?pom|antenna|bobble)/.test(p.name.toLowerCase()) && !/\b(side|front|back|bottom)\b/.test(s) ? 'top' : /below (the )?eyes/.test(s) ? 'below-eyes' : /\btop\b/.test(s) ? 'top' : /\bsides?\b/.test(s) ? 'side' : /\bfront\b/.test(s) ? 'front' : /\bback\b(?!\s+loops?)/.test(s) ? 'back' : /\bbottom\b/.test(s) ? 'bottom' : 'default';
           const seam: Seam = { piece: p.id, host: host.id, hint, text: snt.text.trim(), line: li, src, spacingSts: spacing ? +(spacing[1] ?? spacing[2]) : undefined };
@@ -676,7 +713,10 @@ export function parsePattern(text: string): Pattern {
           diagnostics.push({ severity: 'info', code: 'assumption', line: li, src, message: `"${rel[2]}" read as toward the ${rel[2] === 'above' ? 'start (magic ring)' : 'end'} of the piece.` });
         } else if (between) row = resolveRow(p, +between[1], li, src);
         else if (atRow) row = resolveRow(p, +atRow[1], li, src);
-        if (row !== undefined) p.markers.push({ kind: 'embroidery', rowA: row, spacingSts: eyes?.spacingSts, text: snt.text.trim(), line: li, src });
+        // cheeks with no row given: level with the eyes, a little further out
+        const cheeks = /cheek|blush/.test(s);
+        if (row === undefined && cheeks && eyes) row = Math.min(eyes.rowA, eyes.rowB ?? eyes.rowA);
+        if (row !== undefined) p.markers.push({ kind: 'embroidery', rowA: row, spacingSts: cheeks && eyes ? (eyes.spacingSts ?? 6) + 6 : eyes?.spacingSts, text: snt.text.trim(), line: li, src });
         continue;
       }
     }
@@ -720,5 +760,5 @@ export function parsePattern(text: string): Pattern {
     if (p.stuffing !== 'none' && p.stuffing !== 'unspecified') h.stuffing = p.stuffing;
     diagnostics.push({ severity: 'info', code: 'assumption', line: seam.line, src: seam.src, message: `${p.name} has as many stitches as the open edge of ${h.name}, so it is joined on as a lid.` });
   }
-  return { title, terms, materials, pieces: pieces.filter((p) => p.rows.length), seams, diagnostics, lines };
+  return { title, terms, materials, pieces: pieces.filter((p) => p.rows.length || p.strap), seams, diagnostics, lines };
 }

@@ -76,7 +76,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         pi.nodeIds.push(id);
         return id;
       };
-      const firstColor = yarnColor.get(piece.rows[0]?.yarnId ?? '') ?? '#e8a87c';
+      const firstColor = yarnColor.get(piece.rows[0]?.yarnId ?? piece.sections[0]?.yarnId ?? '') ?? '#e8a87c';
 
       // Foundation
       let prevRow: GRow | null = null;

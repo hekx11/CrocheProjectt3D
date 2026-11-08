@@ -382,8 +382,27 @@ export class CrochetView {
 
   private updateMarkers() {
     if (!this.model) return;
+    for (const o of this.markers.children) {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      (m.material as THREE.Material | undefined)?.dispose();
+    }
     this.markers.clear();
     const pos = this.pos, nrm = this.nrm;
+    // chain strands (straps, suspenders): no fabric to mesh, drawn as a cord of yarn
+    for (const pi of this.model.graph.instances) {
+      if (pi.rows.length !== 1 || !pi.piece.strap) continue;
+      const ids = pi.rows[0].nodes;
+      if (ids.length < 2) continue;
+      const pts = ids.map((id) => new THREE.Vector3(pos[id * 3], pos[id * 3 + 1], pos[id * 3 + 2]));
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const n0 = this.model.graph.nodes[ids[0]];
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, ids.length * 3, Math.max(0.6, n0.h * 0.45), 8, false),
+        new THREE.MeshStandardMaterial({ color: new THREE.Color(n0.color), roughness: 0.9 }),
+      );
+      this.markers.add(tube);
+    }
     for (const m of this.model.markers) {
       const p = new THREE.Vector3(
         (pos[m.a * 3] + pos[m.b * 3]) / 2, (pos[m.a * 3 + 1] + pos[m.b * 3 + 1]) / 2, (pos[m.a * 3 + 2] + pos[m.b * 3 + 2]) / 2,
@@ -399,6 +418,27 @@ export class CrochetView {
         eye.position.copy(p).addScaledVector(n, r * 0.25);
         eye.lookAt(p.clone().addScaledVector(n, 10));
         this.markers.add(eye);
+      } else if (m.what === 'nose') {
+        // a few stitches wrapped over one stitch in the face's own yarn: a small round bump
+        const r = this.model.sizing.w * 0.32;
+        const c = new THREE.Color(m.color ?? '#1a1a1a');
+        if (m.color) c.multiplyScalar(0.93);
+        const nose = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+        nose.scale.set(1.25, 0.9, 0.7);
+        nose.position.copy(p).addScaledVector(n, r * 0.45);
+        nose.lookAt(p.clone().addScaledVector(n, 10));
+        this.markers.add(nose);
+      } else if (m.what === 'cheek') {
+        // blush: a soft flat oval just on the surface
+        const r = this.model.sizing.w * 0.55;
+        const cheek = new THREE.Mesh(
+          new THREE.CircleGeometry(r, 20),
+          new THREE.MeshStandardMaterial({ color: new THREE.Color(m.color ?? '#f2a7c3'), roughness: 1, transparent: true, opacity: 0.55, depthWrite: false }),
+        );
+        cheek.scale.set(1.3, 0.8, 1);
+        cheek.position.copy(p).addScaledVector(n, 1.0);
+        cheek.lookAt(p.clone().addScaledVector(n, 10));
+        this.markers.add(cheek);
       } else {
         const brow = new THREE.Mesh(
           new THREE.CapsuleGeometry(1.2, (this.model.sizing.w * 0.9), 4, 8),
