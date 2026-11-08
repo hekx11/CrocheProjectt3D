@@ -157,7 +157,7 @@ function rebuild(force: boolean) {
   if (!pattern.pieces.length) { $('size').textContent = 'Start typing a pattern…'; return; }
   model = buildModel(pattern, user, warm);
   view.setModel(model);
-  $('size-source').textContent = `Stitch size from ${model.sizing.source} · sc ≈ ${model.sizing.w.toFixed(1)} × ${model.sizing.h.toFixed(1)} mm`;
+  $('size-source').textContent = `Stitch size from ${model.sizing.source} · sc ≈ ${model.sizing.w.toFixed(1)} × ${model.sizing.h.toFixed(1)} mm · ${model.sizing.fiber} texture`;
   $('solving').hidden = false;
   job++;
   worker.postMessage({ type: 'start', job, input: model.solverInput, frames: 400 });

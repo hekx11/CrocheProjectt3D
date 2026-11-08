@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Model } from '../geometry/pipeline';
 import { computeNormals } from '../geometry/mesh';
-import { stitchNormalMap } from './textures';
+import { yarnTextures, type YarnTextures } from './textures';
 
 /**
  * Renders the solved stitch surface. Triangles are expanded (non-indexed) so each one can carry
@@ -14,6 +14,7 @@ export class CrochetView {
   readonly camera = new THREE.PerspectiveCamera(40, 1, 1, 20000);
   readonly controls: OrbitControls;
   private mesh: THREE.Mesh | null = null;
+  private shells = new THREE.Group();
   private markers = new THREE.Group();
   private model: Model | null = null;
   private pos: Float32Array = new Float32Array();
@@ -41,6 +42,7 @@ export class CrochetView {
     rim.position.set(-500, 200, -400);
     this.scene.add(rim);
     this.scene.add(this.markers);
+    this.scene.add(this.shells);
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.domElement.addEventListener('pointerup', (e) => this.pick(e));
@@ -77,6 +79,8 @@ export class CrochetView {
       this.mesh.geometry.dispose();
       (this.mesh.material as THREE.Material).dispose();
     }
+    for (const sh of this.shells.children) ((sh as THREE.Mesh).material as THREE.Material).dispose();
+    this.shells.clear();
     const tris = model.tris;
     const T = tris.length;
     const geo = new THREE.BufferGeometry();
@@ -108,7 +112,7 @@ export class CrochetView {
         if (u - ref > 0.5) u -= 1;
         if (ref - u > 0.5) u += 1;
         uv[(t + k) * 2] = u * L;
-        uv[(t + k) * 2 + 1] = vs[k] * 0.8;
+        uv[(t + k) * 2 + 1] = vs[k];
       }
     }
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -120,22 +124,66 @@ export class CrochetView {
       this.baseColors.set([c.r, c.g, c.b], t * 3);
     }
     const sz = model.sizing;
+    const yt = yarnTextures(sz.fiber);
+    const look = yt.look;
     const mat = new THREE.MeshPhysicalMaterial({
       vertexColors: true,
-      roughness: sz.roughness,
-      sheen: sz.sheen * 0.45,
-      sheenRoughness: 0.6,
-      sheenColor: new THREE.Color(0x9a9a9a),
-      normalMap: stitchNormalMap(),
-      normalScale: new THREE.Vector2(1, 1).multiplyScalar(0.75 * (1 - sz.fuzz * 0.6)),
+      map: yt.cavityMap,
+      roughness: look.roughness,
+      sheen: look.sheen,
+      sheenRoughness: look.sheenRoughness,
+      sheenColor: new THREE.Color().setScalar(look.sheenTint),
+      normalMap: yt.normalMap,
+      normalScale: new THREE.Vector2(1, 1),
       side: THREE.DoubleSide,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.scene.add(this.mesh);
+    this.addShells(geo, yt, sz.w);
     this.nrm = new Float32Array(model.solverInput.pos.length);
     this.applyColors();
     this.update(model.solverInput.pos);
     if (!keepView) this.needsFit = true;
+  }
+
+  /**
+   * Fuzzy yarns: a few cut-out layers pushed out along the normal, each keeping only the hairs that
+   * reach that high. Gives mohair its halo, wool its fuzz and chenille its plush pile.
+   */
+  private addShells(geo: THREE.BufferGeometry, yt: YarnTextures, scWidth: number) {
+    const { shells, sheen, sheenRoughness, sheenTint } = yt.look;
+    if (!yt.hairMap || shells.count === 0) return;
+    for (let i = 0; i < shells.count; i++) {
+      const f = (i + 1) / (shells.count + 1);
+      const offset = { value: shells.length * scWidth * f };
+      const m = new THREE.MeshPhysicalMaterial({
+        vertexColors: true,
+        map: yt.cavityMap, // keep the stitch shading on the fuzz so stitches still read through it
+        roughness: 1,
+        sheen: sheen * 0.5,
+        sheenRoughness,
+        sheenColor: new THREE.Color().setScalar(sheenTint),
+        alphaMap: yt.hairMap,
+        alphaTest: Math.min(0.95, 0.1 + f * 0.85),
+        opacity: shells.opacity,
+        transparent: shells.opacity < 1,
+        depthWrite: shells.opacity >= 1,
+        side: THREE.DoubleSide,
+      });
+      // tips slightly lighter: light scatters through the loose fibres
+      m.color.setScalar(1 + 0.15 * f);
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uShellOffset = offset;
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nuniform float uShellOffset;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed += normalize(objectNormal) * uShellOffset;');
+      };
+      m.customProgramCacheKey = () => 'yarn-shell';
+      const sh = new THREE.Mesh(geo, m);
+      sh.renderOrder = 1 + i;
+      sh.raycast = () => {}; // picking uses the real surface
+      this.shells.add(sh);
+    }
   }
 
   highlight(line: number) {
