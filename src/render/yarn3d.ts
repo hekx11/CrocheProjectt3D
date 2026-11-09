@@ -393,7 +393,6 @@ export class Yarn3D {
         Cc.multiplyScalar(1 / s.close.length);
         if (Nc.lengthSq() < 1e-12) Nc.set(0, 1, 0);
         Nc.normalize();
-        for (const id of s.close) for (let k = 0; k < 3; k++) pos[id * 3 + k] += (Cc.getComponent(k) - pos[id * 3 + k]) * 0.3;
       }
       // the ring: centre, plane, radius; a stitch worked into it stands on the ring, not the centre
       let rr = 0, rw = 1;
@@ -531,7 +530,7 @@ export class Yarn3D {
               put(q.copy(P(id, a)).lerp(Cc, 0.5).addScaledVector(Nc, -this.radius * 0.7));
             }
             put(q.copy(Cc).addScaledVector(Nc, -this.radius));
-            put(q.copy(Cc).addScaledVector(Nc, -this.sizeW * 1.5));
+            put(q.copy(Cc).addScaledVector(Nc, -this.radius * 2.5));
           } else for (const [x, y, z] of END) map(x, y, z, x);
         }
         widths.push(w);
