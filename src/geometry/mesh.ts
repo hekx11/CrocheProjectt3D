@@ -1,12 +1,28 @@
 import type { PieceInstance, StitchGraph } from '../graph/build';
 
 /** Triangulate each piece instance from its rows (quad per stitch, triangle at inc/dec, fan at the ring). */
-export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint16Array } {
+export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint16Array; holes: Uint8Array } {
   const out: number[] = [];
   const owner: number[] = [];
+  const hole: number[] = [];
   g.instances.forEach((pi, pidx) => {
+    // a chain made inside a round or row (a ch-2 corner, a ch-1 space) bridges over the stitches
+    // below it: nothing fills the gap under it, so lace and granny squares keep their holes
+    const space = new Set<number>();
+    for (const row of pi.rows) if (row.row > 0) row.nodes.forEach((id, j) => {
+      if (g.nodes[id].type !== 'ch') return;
+      // a chain at the very start of a row is its turning chain (it stands at the edge, not over a gap)
+      if (row.nodes.slice(0, j).every((q) => g.nodes[q].type === 'ch')) return;
+      space.add(id);
+    });
+    const rowOf = new Map<number, number>();
+    for (const row of pi.rows) for (const id of row.nodes) rowOf.set(id, row.row);
     const add = (a: number, b: number, c: number) => {
       if (a === b || b === c || a === c) return;
+      // a triangle from a bridging chain down to the row below (or the ring) would cover the hole:
+      // it stays in the mesh (normals, the solver) but is not drawn
+      const tri = [a, b, c];
+      hole.push(tri.some((v) => space.has(v)) && tri.some((v) => !space.has(v) && (rowOf.get(v) ?? -1) < Math.max(...tri.filter((q) => space.has(q)).map((q) => rowOf.get(q) ?? 0))) ? 1 : 0);
       out.push(a, b, c);
       owner.push(pidx);
     };
@@ -38,11 +54,25 @@ export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint
         }
         continue;
       }
+      // the first round of an oval goes round both sides of its foundation chain: fill between
+      if (pi.piece.oval && prev.row === 0 && !prev.closed) {
+        for (let j = 0; j < m; j++) {
+          const j1 = (j + 1) % m;
+          const a = Math.max(0, A[j]), b = Math.max(0, A[j1]);
+          add(C[j], C[j1], P[Math.min(b, n - 1)]);
+          if (a !== b) add(C[j], P[Math.min(b, n - 1)], P[Math.min(a, n - 1)]);
+        }
+        continue;
+      }
       const prevClosed = prev.closed && prev.row > 0 || prev.ring !== undefined || prev === pi.baseRow;
+      // anchors run once round: stitches at the end worked back into where the round began
+      // ("2 dc in the base of the ch 4") are past the end, not back at the start
+      const U = A.map((x) => Math.max(0, x));
+      for (let j = 1; j < m; j++) while (U[j] < U[j - 1] - n / 2) U[j] += n;
       for (let j = 0; j < m; j++) {
         const last = j === m - 1;
-        const aj = Math.max(0, A[j]);
-        let aj1 = last ? Math.max(0, A[0]) + n : Math.max(0, A[j + 1]);
+        const aj = U[j];
+        let aj1 = last ? U[0] + n : U[j + 1];
         if (aj1 < aj) aj1 += n;
         if (aj1 - aj > n) aj1 = aj + n;
         const cj1 = C[(j + 1) % m];
@@ -60,7 +90,7 @@ export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint
       for (let j = 1; j < L.length - 1; j++) add(L[0], L[j], L[j + 1]);
     }
   });
-  return { tris: new Uint32Array(out), triPiece: new Uint16Array(owner) };
+  return { tris: new Uint32Array(out), triPiece: new Uint16Array(owner), holes: new Uint8Array(hole) };
 }
 
 /** Smooth per-node normals, oriented outward per piece instance. */
@@ -85,7 +115,17 @@ export function computeNormals(pos: Float32Array, tris: Uint32Array, triPiece: U
       const i = id * 3;
       dot += nrm[i] * (pos[i] - cx) + nrm[i + 1] * (pos[i + 1] - cy) + nrm[i + 2] * (pos[i + 2] - cz);
     }
-    const s = dot < 0 ? -1 : 1;
+    let s = dot < 0 ? -1 : 1;
+    // a flat piece (a coaster, a granny square) has no inside to point away from: its centroid
+    // sits in its own plane and the sign above is noise, so it would flip between solves (and
+    // light the piece from behind). Its right side faces up (or the viewer, if it stands up).
+    const motif = (pi as { rings?: unknown }).rings !== undefined || (pi.piece && !pi.piece.flatten && pi.piece.construction !== 'rows');
+    if (pi.flat && pi.stuffed === 0 && motif) {
+      let sy = 0, sz = 0;
+      for (const id of pi.nodeIds) { sy += nrm[id * 3 + 1]; sz += nrm[id * 3 + 2]; }
+      const m = Math.abs(sy) >= Math.abs(sz) ? sy : sz;
+      if (m) s = m < 0 ? -1 : 1;
+    }
     for (const id of pi.nodeIds) {
       const i = id * 3;
       const l = Math.hypot(nrm[i], nrm[i + 1], nrm[i + 2]) || 1;

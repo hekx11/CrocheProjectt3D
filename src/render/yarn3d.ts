@@ -160,11 +160,22 @@ function fibreMask(look: YarnLook): THREE.DataTexture {
   return tex;
 }
 
-interface Inst { node: number; parent: number; prev: number; next: number }
+/** Narrow each stitch toward its bottom by its instance's taper (1 = straight sides). */
+function taperShader(mat: THREE.Material, f: number) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float taper;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed.x *= mix(taper, 1.0, clamp((position.y + ${(f / 2).toFixed(3)}) / ${f.toFixed(3)}, 0.0, 1.0));`);
+  };
+  const key = mat.customProgramCacheKey.bind(mat);
+  mat.customProgramCacheKey = () => key() + '|taper' + f;
+}
+
+interface Inst { node: number; parent: number; prev: number; next: number; chain?: boolean; pp: number; np: number; fan?: boolean }
 
 export class Yarn3D {
   readonly group = new THREE.Group();
-  private bands: { mesh: THREE.InstancedMesh; shells: THREE.InstancedMesh[]; insts: Inst[] }[] = [];
+  private bands: { mesh: THREE.InstancedMesh; shells: THREE.InstancedMesh[]; insts: Inst[]; taper: THREE.InstancedBufferAttribute[] }[] = [];
   private nodeSlot = new Map<number, [number, number]>(); // node → [band, index]
 
   build(model: Model, look: YarnLook) {
@@ -175,6 +186,10 @@ export class Yarn3D {
     for (const e of g.edges) if (e.kind === 'into' && parent[e.b] < 0) parent[e.b] = e.a;
     // a first round's stitches stand on the ring centre (16 dc in a ring reach right across)
     for (const e of g.edges) if (e.kind === 'ring' && parent[e.b] < 0) parent[e.b] = e.a;
+    // stitches worked into one space or loop (a granny square's 3-dc clusters, a shell): three or
+    // more on one parent
+    const kids = new Map<number, number>();
+    for (let id = 0; id < nodes.length; id++) if (parent[id] >= 0) kids.set(parent[id], (kids.get(parent[id]) ?? 0) + 1);
     const insts: Inst[][] = [[], [], []];
     for (const pi of g.instances) {
       for (const row of pi.rows) {
@@ -185,7 +200,9 @@ export class Yarn3D {
           const band = BAND_OF[n.type] ?? 0;
           const prev = j > 0 ? ids[j - 1] : row.closed ? ids[ids.length - 1] : id;
           const next = j < ids.length - 1 ? ids[j + 1] : row.closed ? ids[0] : id;
-          insts[band].push({ node: id, parent: parent[id], prev, next });
+          // a chain lies along the yarn path (a little oval), not standing up from the row below
+          const chain = n.type === 'ch';
+          insts[band].push({ node: id, parent: chain ? -1 : parent[id], prev, next, chain, pp: parent[prev], np: parent[next], fan: !chain && parent[id] >= 0 && (kids.get(parent[id]) ?? 0) >= 3 && nodes[parent[id]].type === 'ch' });
         });
       }
     }
@@ -196,6 +213,9 @@ export class Yarn3D {
     insts.forEach((list, band) => {
       if (!list.length) return;
       const geo = template(BAND_F[band], radius);
+      const tapers: THREE.InstancedBufferAttribute[] = [];
+      const withTaper = (gg: THREE.BufferGeometry) => { const t = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(1), 1); t.setUsage(THREE.DynamicDrawUsage); gg.setAttribute('taper', t); tapers.push(t); return gg; };
+      withTaper(geo);
       const mat = new THREE.MeshPhysicalMaterial({
         roughness: look.roughness,
         sheen: look.sheen,
@@ -204,6 +224,7 @@ export class Yarn3D {
         normalMap: nmap,
         normalScale: new THREE.Vector2(1, 1),
       });
+      taperShader(mat, BAND_F[band]);
       const mesh = new THREE.InstancedMesh(geo, mat, list.length);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
@@ -215,13 +236,14 @@ export class Yarn3D {
         for (let k = 0; k < count; k++) {
           const f = (k + 1) / (count + 1);
           const reach = (look.shells.kind === 'halo' ? 2.4 : look.shells.kind === 'pile' ? 0.5 : 1.0) * look.shells.length / 0.1;
-          const sg = template(BAND_F[band], radius, Math.min(1.2, reach * f));
+          const sg = withTaper(template(BAND_F[band], radius, Math.min(1.2, reach * f)));
           const sm = new THREE.MeshPhysicalMaterial({
             roughness: 1, sheen: look.sheen * 0.6, sheenRoughness: look.sheenRoughness,
             sheenColor: new THREE.Color().setScalar(look.sheenTint),
             alphaMap: fmask, alphaTest: Math.min(0.95, 0.15 + f * 0.8), side: THREE.DoubleSide,
           });
           sm.color.setScalar(1 + 0.12 * f);
+          taperShader(sm, BAND_F[band]);
           const s = new THREE.InstancedMesh(sg, sm, list.length);
           s.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
           s.frustumCulled = false;
@@ -232,7 +254,7 @@ export class Yarn3D {
         }
       }
       list.forEach((it, i) => this.nodeSlot.set(it.node, [this.bands.length, i]));
-      this.bands.push({ mesh, shells, insts: list });
+      this.bands.push({ mesh, shells, insts: list, taper: tapers });
     });
   }
 
@@ -270,14 +292,38 @@ export class Yarn3D {
         Y.crossVectors(Z, X);
         if (Y.dot(up) < 0) { X.negate(); Y.negate(); }
         if (!(h > 1e-6)) h = w;
+        if (it.chain) h = w * 0.55;
+        // a stitch in a cluster worked into a chain space stands straight under its own top, side
+        // by side with the others (their tops make one straight edge, like sc), its foot in the
+        // space; fanned out of the one point that stands for the space, they read as a flower
+        if (it.fan) {
+          h = Math.max(up.dot(Y), h * 0.6);
+          up.copy(Y).multiplyScalar(h);
+        }
         // centre between this stitch's top and the stitch below it
         if (it.parent >= 0) C.addScaledVector(up, -0.5);
-        m.makeBasis(X.multiplyScalar(w), Y.multiplyScalar(h / f), Z.multiplyScalar(w));
+        // a stitch spans from where it is worked to its top: stitches fanned out of one space (a
+        // granny square's corner, a shell) lean out along the fan instead of standing square to
+        // the row and overlapping their neighbours
+        const lean = !it.fan && it.parent >= 0 && h > 1e-6 && Math.abs(up.dot(X)) < h * 0.85;
+        if (lean) { up.addScaledVector(Z, -up.dot(Z)); if (up.dot(Y) < 0) up.negate(); }
+        // as wide at the bottom as the stitches it stands on are apart: stitches fanned out of one
+        // space (a granny square's clusters, a shell) narrow to where they are worked instead of
+        // overlapping their neighbours down there
+        let taper = 1;
+        if (!it.fan && it.parent >= 0 && it.pp >= 0 && it.np >= 0 && it.prev !== id && it.next !== id) {
+          P(it.np, a); P(it.pp, b);
+          const bw = a.distanceTo(b) / 2;
+          taper = Math.min(1.5, Math.max(0.3, bw / w));
+        }
+        for (const t of band.taper) t.setX(i, taper);
+        m.makeBasis(X.multiplyScalar(w), lean ? up.multiplyScalar(1 / f) : Y.multiplyScalar(h / f), Z.multiplyScalar(w));
         m.setPosition(C);
         band.mesh.setMatrixAt(i, m);
         for (const s of band.shells) s.setMatrixAt(i, m);
       });
       band.mesh.instanceMatrix.needsUpdate = true;
+      for (const t of band.taper) t.needsUpdate = true;
       for (const s of band.shells) s.instanceMatrix.needsUpdate = true;
     });
   }

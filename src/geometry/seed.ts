@@ -58,6 +58,9 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
   let y = 0;
   let prevAngles: number[] = [];
   if (pi.centre !== undefined) pos.set([0, 0, 0], pi.centre * 3);
+  const oval = !!pi.piece.oval;
+  const chainRow = oval ? pi.rows.find((r) => r.row === 0) : undefined;
+  const chainLen = chainRow ? chainRow.nodes.reduce((a, id) => a + g.nodes[id].w, 0) * 0.9 : 0;
   for (const row of pi.rows) {
     const n = row.nodes.length;
     if (!n) continue;
@@ -71,10 +74,38 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
     let phase = 0;
     if (prevAngles.length && row.anchors.some((a) => a >= 0)) {
       const diffs: number[] = [];
-      row.anchors.forEach((a, j) => { if (a >= 0 && prevAngles[a] !== undefined) diffs.push(prevAngles[a] - (TAU * j) / n); });
+      // (each stitch over the one it is worked into: both measured at their middles, or every round
+      // turns half a stitch further than the last and a tall piece is seeded twisted)
+      row.anchors.forEach((a, j) => { if (a >= 0 && prevAngles[a] !== undefined) diffs.push(prevAngles[a] - (TAU * (j + 0.5)) / n); });
       phase = circMean(diffs);
     }
     const angles: number[] = [];
+    if (oval) {
+      // round both sides of a foundation chain: a stadium (two straight sides, round ends) round
+      // the chain, starting at the hook end and running back along the first side
+      if (row.row === 0) {
+        row.nodes.forEach((id, j) => { pos.set([(j - (n - 1) / 2) * (chainLen / n), 0, 0], id * 3); angle[id] = 0; });
+        prevAngles = row.nodes.map(() => 0);
+        continue;
+      }
+      const L = chainLen;
+      const r = Math.max(wsum / n, (wsum - 2 * L) / TAU);
+      const P = 2 * L + TAU * r;
+      row.nodes.forEach((id, j) => {
+        let d = ((j + 0.5) / n) * P;
+        let x: number, z: number, th: number;
+        if (d < L) { x = L / 2 - d; z = r; th = Math.PI / 2; }
+        else if ((d -= L) < Math.PI * r) { th = Math.PI / 2 + d / r; x = -L / 2 + r * Math.cos(th); z = r * Math.sin(th); }
+        else if ((d -= Math.PI * r) < L) { x = -L / 2 + d; z = -r; th = (3 * Math.PI) / 2; }
+        else { d -= L; th = (3 * Math.PI) / 2 + d / r; x = L / 2 + r * Math.cos(th); z = r * Math.sin(th); }
+        angles.push(th);
+        angle[id] = th;
+        pos.set([x, y, z], id * 3);
+      });
+      prevAngles = angles;
+      Rprev = R;
+      continue;
+    }
     row.nodes.forEach((id, j) => {
       const th = phase + (TAU * (j + 0.5)) / n;
       angles.push(th);
@@ -357,11 +388,24 @@ function placeBase(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle: 
       }
       moved.push(leg);
     }
-    // the chains between the legs sit under the stitches worked into them
-    for (const id of pi.baseChains ?? []) {
-      const k = base.nodes.indexOf(id);
-      const over = first.nodes.filter((_, j) => first.anchors[j] === k);
-      pos.set(add(over.length ? centroid(pos, over) : A, mul(down, w * 0.6)), id * 3);
+    // the chains between the legs run straight across the gap, from the leg before them to the leg
+    // after (the crotch): left on one point they spread out in any direction once solved and the
+    // body above twists with them
+    const chainSet = new Set(pi.baseChains ?? []);
+    const B = base.nodes;
+    for (let k = 0; k < B.length; k++) {
+      if (!chainSet.has(B[k]) || (k > 0 && chainSet.has(B[k - 1]))) continue;
+      let e = k;
+      while (e + 1 < B.length && chainSet.has(B[e + 1])) e++;
+      const before = B[(k - 1 + B.length) % B.length], after = B[(e + 1) % B.length];
+      const n = e - k + 1;
+      if (chainSet.has(before) || chainSet.has(after)) {
+        for (let i = k; i <= e; i++) pos.set(add(A, mul(down, w * 0.6)), B[i] * 3);
+      } else {
+        const p0 = get(pos, before), p1 = get(pos, after);
+        for (let i = 0; i < n; i++) pos.set(add(p0, mul(sub(p1, p0), (i + 1) / (n + 1))), B[k + i] * 3);
+      }
+      k = e;
     }
     // stand on the legs side by side (left and right), not one behind the other
     if (legs.length === 2) {
@@ -463,9 +507,18 @@ function attach(
   const topCentre = seam.hint === 'top' && count === 1 && seam.rowA === undefined;
   const topRows = up ? host.rows.slice(-2) : host.rows.filter((r) => r.row > 0).slice(0, 2);
   const near = topCentre ? topRows.flatMap((r) => r.nodes) : hostIds.filter((id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < TAU / 10);
-  let target = centroid(pos, near.length ? near : hostIds);
+  // a flattened piece sewn on over several rounds (ears "between round 8 and 17"): its flat edge
+  // runs along the host from the first of those rounds to the last, one stitch per round
+  const hangs2 = pi.piece.flatten && pi.stuffed === 0 && seam.hint === 'side' && pi.rows.length >= 6;
+  const meridian = pi.piece.flatten && !hangs2 && !topCentre && seam.rowA !== undefined && (rb ?? ra!) - ra! >= 3
+    ? region.map((r) => r.nodes.filter((id) => !g.nodes[id].virtual).reduce((b, id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < Math.abs(Math.atan2(Math.sin(angle[b] - th), Math.cos(angle[b] - th))) ? id : b, r.nodes[0]))
+    : null;
+  let target = centroid(pos, meridian ?? (near.length ? near : hostIds));
   const hostC = centroid(pos, host.nodeIds);
-  let normal = topCentre ? [0, 1, 0] as V : norm([target[0] - hostC[0], 0, target[2] - hostC[2]]);
+  // out from the host's axis; something sewn over given rounds with no other hint (ears "between
+  // round 8 and 17" of a head) sticks out square to the surface there: up and out near the top
+  const hostAxisC: V = [hostC[0], seam.hint === 'default' && seam.rowA !== undefined ? hostC[1] : target[1], hostC[2]];
+  let normal = topCentre ? [0, 1, 0] as V : norm(sub(target, hostAxisC));
   // "sew the hat to the top side of the head": on top, tipped over to one side (the doll's left)
   if (topCentre && /\btop side\b|\bto (?:one|the) side\b|\btilt|\bat an angle\b/i.test(seam.text)) {
     const ordered = up ? [...hostRows].reverse() : hostRows;
@@ -510,6 +563,26 @@ function attach(
   // Fold each ring flat along x, keeping its length: a ring of radius R becomes two layers πR wide
   // (squashing z alone would shorten every ring and the extra yarn then crumples).
   if (pi.piece.flatten) {
+    // pressed flat, a cup is a triangle as long as its rounds are tall, not a disc: rounds that
+    // increase (6, 12, 18 …) sit one stitch height apart along it, less only what the widening
+    // takes (seeded round, a stuffed piece's increase rounds would lie almost flat on each other)
+    const rows = pi.rows.filter((r) => r.row > 0 && r.nodes.length);
+    if (rows.length >= 3) {
+      const yOf = (r: { nodes: number[] }) => r.nodes.reduce((a, id) => a + pos[id * 3 + 1], 0) / r.nodes.length;
+      const widthOf = (r: { nodes: number[] }) => r.nodes.reduce((a, id) => a + (g.nodes[id].w || w), 0) / 2;
+      const sgn = Math.sign(yOf(rows[0]) - yOf(rows[rows.length - 1])) || 1;
+      let y = yOf(rows[rows.length - 1]);
+      const at = new Map<number, number>();
+      for (let k = rows.length - 1; k >= 0; k--) {
+        if (k < rows.length - 1) {
+          const h = g.nodes[rows[k + 1].nodes[0]].h || w;
+          const dw = (widthOf(rows[k + 1]) - widthOf(rows[k])) / 2;
+          y += sgn * Math.sqrt(Math.max(h * h - dw * dw, h * h * 0.25));
+        }
+        at.set(k, y);
+      }
+      rows.forEach((r, k) => { const y0 = yOf(r), y1 = at.get(k)!; for (const id of r.nodes) pos[id * 3 + 1] += y1 - y0; });
+    }
     for (const id of pi.nodeIds) {
       const x = pos[id * 3], z = pos[id * 3 + 2];
       const R = Math.hypot(x, z), th = Math.atan2(z, x);
@@ -519,7 +592,10 @@ function attach(
   }
   // long flat flaps sewn to the sides (floppy dog ears) hang down along the head, flat side out
   const hang = pi.piece.flatten && pi.stuffed === 0 && seam.hint === 'side' && pi.rows.length >= 6;
-  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : normal;
+  // a stuffed arm with its top pressed flat and sewn on at the side is sewn on along a line, not
+  // round a circle: it can't stand straight out and droops down and out from the shoulder
+  const droop = !hang && seam.hint === 'side' && !!pi.piece.flatEdge && pi.stuffed > 0;
+  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : droop ? norm(add(normal, [0, -0.6, 0])) : normal;
   if (hang) planes.set(pi, normal);
   const rot0 = rotator(opening, mul(dir, -1));
   // roll around the attach direction so the flat side faces the front (or out, for a hanging flap)
@@ -555,6 +631,24 @@ function attach(
       if (along < lift) pos.set(add(pv, mul(out, lift - along)), id * 3);
       if (!edge.includes(id)) seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: Math.max(lift, along) });
     }
+  }
+  if (meridian && meridian.length >= 2) {
+    const m0 = get(pos, meridian[0]), axis = sub(get(pos, meridian[meridian.length - 1]), m0);
+    // the edge lies across the meridian once placed: spread it along the meridian by where each
+    // stitch is along the edge's own long direction
+    const ec = centroid(pos, edge);
+    let long: V = [0, 0, 0], far = -1;
+    for (const id of edge) { const d = sub(get(pos, id), ec); const q = dot(d, d); if (q > far) { far = q; long = d; } }
+    long = norm(long);
+    if (dot(long, axis) < 0) long = mul(long, -1);
+    const ts = edge.map((id) => dot(sub(get(pos, id), ec), long));
+    const t0 = Math.min(...ts), t1 = Math.max(...ts);
+    edge.forEach((id, i) => {
+      const t = t1 > t0 ? (ts[i] - t0) / (t1 - t0) : 0.5;
+      const b = meridian[Math.round(t * (meridian.length - 1))];
+      seamEdges.push({ a: id, b, kind: 'seam', rest: w * 0.3 });
+    });
+    return;
   }
   // seam edges: pair each edge stitch with its nearest host stitch in the region
   for (const id of edge) {

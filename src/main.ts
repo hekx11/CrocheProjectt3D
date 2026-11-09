@@ -16,6 +16,9 @@ import bear from '../fixtures/bear-head.txt?raw';
 import coaster from '../fixtures/coaster.txt?raw';
 import flower from '../fixtures/flower.txt?raw';
 import ukBall from '../fixtures/uk-ball.txt?raw';
+import granny from '../fixtures/granny-square.txt?raw';
+import basket from '../fixtures/basket.txt?raw';
+import cat from '../fixtures/sleepy-cat.txt?raw';
 
 const EXAMPLES: Record<string, string> = {
   'Bear head (several pieces)': bear,
@@ -23,6 +26,9 @@ const EXAMPLES: Record<string, string> = {
   'Coaster (flat rows)': coaster,
   'Flower (joined rounds)': flower,
   'Mini ball (UK terms)': ukBall,
+  'Granny square (chain spaces)': granny,
+  'Basket (walls from a flat base)': basket,
+  'Sleepy cat (oval start)': cat,
 };
 
 const store = {
@@ -113,15 +119,18 @@ $('m-close').addEventListener('click', () => toggleMaterials(false));
 // ---------------------------------------------------------------- solver worker
 const worker = new Worker(new URL('./geometry/solver.worker.ts', import.meta.url), { type: 'module' });
 let job = 0;
+const STILL = /[?&]still\b/.test(location.search);
 let model: Model | null = null;
 let lastPos: Float32Array | null = null;
 let warm = new Map<string, [number, number, number]>();
 worker.onmessage = (e: MessageEvent<{ type: 'frame'; job: number; pos: Float32Array; done: boolean }>) => {
   if (e.data.job !== job || !model) return;
   lastPos = e.data.pos;
-  view.update(e.data.pos);
+  // ?still: draw only the solved shape (screenshots on slow software renderers)
+  if (!STILL || e.data.done) view.update(e.data.pos);
   if (e.data.done) {
     $('solving').hidden = true;
+    view.settled();
     rememberPositions();
   }
 };

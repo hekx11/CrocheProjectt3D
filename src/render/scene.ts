@@ -25,12 +25,15 @@ export class CrochetView {
   private relief = { map: null as THREE.Texture | null, scale: 0, bias: 0 };
   private markers = new THREE.Group();
   private yarn = new Yarn3D();
+  private dirty = true;
   private model: Model | null = null;
   private pos: Float32Array = new Float32Array();
   private nrm: Float32Array = new Float32Array();
   private baseColors: Float32Array = new Float32Array();
   private highlightLine = -1;
   private needsFit = true;
+  /** The viewer has turned or zoomed since the view was last fitted. */
+  private moved = false;
   onPick: ((line: number) => void) | null = null;
   onSize: ((mm: [number, number, number]) => void) | null = null;
 
@@ -43,6 +46,7 @@ export class CrochetView {
     host.appendChild(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.addEventListener('start', () => (this.moved = true));
     this.scene.add(new THREE.HemisphereLight(0xfff6ee, 0x6b6460, 1.6));
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(300, 500, 600);
@@ -57,32 +61,46 @@ export class CrochetView {
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.domElement.addEventListener('pointerup', (e) => this.pick(e));
+    // draw only when something changed (the camera moved, new positions, a new model): a big
+    // piece in yarn is heavy to draw, and redrawing it every frame starves the solver
+    this.controls.addEventListener('change', () => { this.dirty = true; });
     const loop = () => {
       this.controls.update();
-      this.renderer.render(this.scene, this.camera);
+      if (this.dirty) { this.dirty = false; this.renderer.render(this.scene, this.camera); }
       requestAnimationFrame(loop);
     };
     loop();
   }
 
   setBackground(color: string) {
+    this.dirty = true;
     this.scene.background = new THREE.Color(color);
   }
 
   private resize() {
+    this.dirty = true;
     const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
 
+  /** The shape has settled: frame it again, unless the viewer has moved the camera meanwhile (the
+   *  first frame is framed before the solver has moved the stitches into place). */
+  settled() {
+    this.dirty = true;
+    if (!this.moved) this.fit();
+  }
+
   resetView() {
+    this.dirty = true;
     this.needsFit = true;
     this.fit();
   }
 
   /** New model (topology changed). */
   setModel(model: Model) {
+    this.dirty = true;
     const keepView = !!this.model;
     this.model = model;
     if (this.mesh) {
@@ -198,39 +216,58 @@ export class CrochetView {
   private buildRidges(model: Model, yt: YarnTextures) {
     const nodes = model.graph.nodes;
     const sz = model.sizing;
+    // a motif in tall stitches (a granny square): each round's tops make one continuous braid of
+    // loops, as on sc fabric, running over the chains between the clusters too. Drawn per stitch,
+    // tall stitches fanned out of a space leave only scattered caps where that edge should be.
+    for (const pi of model.graph.instances) {
+      if (!pi.flat || pi.stuffed > 0 || pi.piece.construction === 'rows' || pi.piece.flatten) continue;
+      for (const row of pi.rows) {
+        if (!row.closed || row.row === 0) continue;
+        let k = 0;
+        while (k < row.nodes.length - 1 && nodes[row.nodes[k]].type === 'slst') k++;
+        const path = row.nodes.slice(k).filter((id) => !nodes[id].virtual);
+        const tall = path.filter((id) => ['hdc', 'dc', 'tr', 'dtr'].includes(nodes[id].type)).length;
+        if (path.length < 6 || tall < path.length * 0.5) continue;
+        this.addRidge(path, true, 0.28 * sz.h, nodes, yt);
+      }
+    }
     for (const pi of model.graph.instances) {
       for (let r = 1; r < pi.rows.length; r++) {
         const row = pi.rows[r];
         const prev = pi.rows[r - 1];
-        if (row.loop !== 'BLO' || prev.ring !== undefined || prev.nodes.length < 3) continue;
+        const blo = row.loop === 'BLO' && prev.ring === undefined && prev.nodes.length >= 3;
+        if (!blo) continue;
         const path = prev.nodes.filter((id) => !nodes[id].virtual);
         if (path.length < 3) continue;
-        const closed = prev.closed;
-        const radius = 0.3 * sz.h;
-        const segs = path.length * 4;
-        const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path.map(() => new THREE.Vector3()), closed), segs, radius, 8, closed);
-        // vertex colours per stitch along the ring; uv u = stitch index so the stitch texture follows
-        const count = geo.getAttribute('position').count;
-        const uvA = geo.getAttribute('uv') as THREE.BufferAttribute;
-        for (let i = 0; i < count; i++) uvA.setXY(i, uvA.getX(i) * path.length, uvA.getY(i) * 0.6);
-        geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
-        ridgeColors(geo, path, nodes);
-        const m = new THREE.MeshPhysicalMaterial({
-          vertexColors: true,
-          map: yt.cavityMap,
-          normalMap: yt.normalMap,
-          roughness: yt.look.roughness,
-          sheen: yt.look.sheen,
-          sheenRoughness: yt.look.sheenRoughness,
-          sheenColor: new THREE.Color().setScalar(yt.look.sheenTint),
-            });
-        const mesh = new THREE.Mesh(geo, m);
-        mesh.raycast = () => {};
-        this.ridges.add(mesh);
-        this.ridgeDefs.push({ mesh, path, closed, radius, segs });
+        this.addRidge(path, prev.closed, 0.3 * sz.h, nodes, yt);
       }
     }
   }
+
+  private addRidge(path: number[], closed: boolean, radius: number, nodes: Model['graph']['nodes'], yt: YarnTextures) {
+    const segs = path.length * 4;
+    const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path.map(() => new THREE.Vector3()), closed), segs, radius, 8, closed);
+    // vertex colours per stitch along the ring; uv u = stitch index so the stitch texture follows
+    const count = geo.getAttribute('position').count;
+    const uvA = geo.getAttribute('uv') as THREE.BufferAttribute;
+    for (let i = 0; i < count; i++) uvA.setXY(i, uvA.getX(i) * path.length, uvA.getY(i) * 0.6);
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    ridgeColors(geo, path, nodes);
+    const m = new THREE.MeshPhysicalMaterial({
+      vertexColors: true,
+      map: yt.cavityMap,
+      normalMap: yt.normalMap,
+      roughness: yt.look.roughness,
+      sheen: yt.look.sheen,
+      sheenRoughness: yt.look.sheenRoughness,
+      sheenColor: new THREE.Color().setScalar(yt.look.sheenTint),
+    });
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.raycast = () => {};
+    this.ridges.add(mesh);
+    this.ridgeDefs.push({ mesh, path, closed, radius, segs });
+  }
+
 
   private updateRidges() {
     const pos = this.pos, nrm = this.nrm;
@@ -330,6 +367,7 @@ export class CrochetView {
    * model doesn't twitch while someone drags through a colour picker.
    */
   recolor(colors: Map<string, string>) {
+    this.dirty = true;
     if (!this.model) return;
     const { graph, markers } = this.model;
     for (const n of graph.nodes) { const c = colors.get(n.yarn); if (c) n.color = c; }
@@ -347,6 +385,7 @@ export class CrochetView {
   }
 
   highlight(line: number) {
+    this.dirty = true;
     this.highlightLine = line;
     this.applyColors();
   }
@@ -381,6 +420,7 @@ export class CrochetView {
 
   /** New positions from the solver (same topology). */
   update(pos: Float32Array) {
+    this.dirty = true;
     if (!this.mesh || !this.model) return;
     this.pos = pos;
     const { tris, triPiece, graph } = this.model;
@@ -389,6 +429,9 @@ export class CrochetView {
     const Nn = (this.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute);
     const pa = P.array as Float32Array, na = Nn.array as Float32Array;
     tessellate(pos, this.nrm, tris, pa, na);
+    // chain spaces stay open: their triangles collapse to a point
+    const holes = this.model.holes, per = pa.length / (tris.length / 3);
+    for (let t = 0; t < holes.length; t++) if (holes[t]) for (let q = t * per + 3; q < (t + 1) * per; q++) pa[q] = pa[t * per + (q % 3)];
     P.needsUpdate = true;
     Nn.needsUpdate = true;
     this.mesh.geometry.computeBoundingSphere();
@@ -526,12 +569,16 @@ export class CrochetView {
     const c = bb.getCenter(new THREE.Vector3());
     const r = bb.getSize(new THREE.Vector3()).length() / 2 || 50;
     const d = r / Math.sin((this.camera.fov * Math.PI) / 360);
-    this.camera.position.set(c.x + d * 0.25, c.y + d * 0.25, c.z + d * 0.95);
+    // something lying flat (a coaster, a granny square) is shown from above, not edge-on
+    const sz = bb.getSize(new THREE.Vector3());
+    if (sz.y < 0.25 * Math.max(sz.x, sz.z)) this.camera.position.set(c.x + d * 0.1, c.y + d * 0.9, c.z + d * 0.42);
+    else this.camera.position.set(c.x + d * 0.25, c.y + d * 0.25, c.z + d * 0.95);
     this.camera.near = d / 100;
     this.camera.far = d * 20;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(c);
     this.needsFit = false;
+    this.moved = false;
   }
 
   private pick(e: PointerEvent) {

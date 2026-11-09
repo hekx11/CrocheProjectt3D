@@ -18,6 +18,8 @@ export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
     .replace(/\bsl\.?\s*sts?\b/g, ' slst ')
     .replace(/\bslsts?\b/g, ' slst ')
     .replace(/\bss\b/g, ' slst ')
+    // post stitches are worked around the post of the stitch below: the same stitch for counting
+    .replace(/\b(front|back)\s+post\s+(?=(?:half\s+double|double|single|treble|half\s+treble)\b)/g, (_m, fb) => ` ${fb[0]}p `)
     .replace(/\bhalf\s+double\s+crochets?\b/g, ' hdc ')
     .replace(/\bhalf\s+trebles?(\s+crochets?)?\b/g, ' htr ')
     .replace(/\bdouble\s+trebles?(\s+crochets?)?\b/g, ' dtr ')
@@ -30,7 +32,15 @@ export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
     .replace(/\bbl\s+only\b/g, ' blo ')
     .replace(/\b(in\s+)?(the\s+)?front\s+loops?(\s+only)?\b/g, ' flo ')
     .replace(/\bfl\s+only\b/g, ' flo ')
-    .replace(/\b(blo|flo)(\d)/g, '$1 $2'); // "BLO24sc"
+    .replace(/\b(blo|flo)(\d)/g, '$1 $2') // "BLO24sc"
+    // "sc in the back loop of each st" → "sc blo in each st"
+    .replace(/\b(blo|flo)\s+of\b/g, '$1 in');
+
+  s = s
+    .replace(/\b(fp|bp)\s*(sc|hdc|dc|tr|htr)\b/g, ' $2 post ')
+    // "fpdc around next st", "bpdc around the post of next st": into that stitch, not "around" the round
+    .replace(/\bpost\s+around\s+(?:the\s+post\s+of\s+)?(?:the\s+)?(?=next|each|same|first)/g, 'post in ')
+    .replace(/\bpost\b/g, ' ');
 
   if (terms === 'UK') s = ukToUs(s);
 
@@ -38,6 +48,8 @@ export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
     .replace(/\bsc2tog\b|\binv(isible)?\s*-?\s*dec(rease)?s?\b|\bdecreases?\b|\bdecs?\b|\bdecreasing\b/g, ' dec ')
     .replace(/\bincreases?\b|\bincreasing\b|\bincs?\b/g, ' inc ')
     .replace(/\bstitch(es)?\b|\bsts\b|\bst\b/g, ' st ')
+    // "ch-2 space", "ch 3 sp", "chain space", "ch-1 sp", "ch-5 loop": a chain space of the row below
+    .replace(/\b(?:ch|chains?)\s*-?\s*\d*\s*-?\s*(?:spaces?|sps?|loops?|arch(?:es)?)\b|\b(?:corner\s+)?spaces?\b/g, ' sp ')
     .replace(/\bchains?\b|\bchs\b/g, ' ch ')
     .replace(/\brepeat\b|\brep\b/g, ' rep ')
     .replace(/\bevery\b|\beach remaining\b|\ball\b/g, ' each ')
@@ -113,6 +125,23 @@ export function rewritePhrases(input: string): string {
     .replace(/\b(?:in\s+)?each\s+of\s+(?:the\s+)?(?:next\s+|following\s+|first\s+|remaining\s+)?(\d+)/g, ' in next $1 ')
     // "in the first 5", "in remaining 5", "in the following 15" (not "to the last 3", which counts from the end)
     .replace(/(?<!\b(?:to|until)\s(?:the\s)?)\b(?:in\s+)?(?:the\s+)?(?:first|remaining|following)\s+(\d+)/g, ' in next $1 ')
+    // "working on the other side of the chain", "continue along the opposite side of the foundation
+    // chain", "in the bottom loops of the ch": back along the chain's other side (an oval)
+    .replace(/\b(?:(?:then|now)\s+)?(?:(?:rotate|turn)\s+(?:your\s+)?(?:work\s+)?(?:(?:and|to)\s+)?)?(?:(?:continue|continuing|work|working)\s+)?(?:(?:on|along|in|into|down|across)\s+)?(?:the\s+)?(?:other|opposite|bottom|reverse|underside|remaining)\s+(?:side|loops?|bumps?|edge)?\s*(?:of|on)\s+(?:the\s+|your\s+)?(?:foundation\s+|starting\s+|beginning\s+|beg\s+)?(?:ch|chains?)(?:\s*\d+)?\b/g, ' otherside ')
+    .replace(/\b(?:(?:continue|continuing|work|working)\s+)?(?:on|along|down)\s+(?:the\s+)?(?:other|opposite)\s+side\b/g, ' otherside ')
+    // granny-square wording: "(which is the top of …)" notes, "into the ring, work 3 dc", "on the first
+    // side of the square", "in the corner tr", "repeat from * for each side", "in the last corner, …",
+    // "in the base of the ch 4" (where the round began), "to finish the corner"
+    .replace(/\(\s*which\b[^)]*\)/g, ' ')
+    .replace(/(^|[.,;]\s*)(?:in|into)\s+(?:the\s+)?(?:ring|mr|magic ring)\s*,\s*/g, '$1 ')
+    .replace(/\b(?:on|along)\s+(?:the\s+)?(?:first|next|this|each|same)?\s*side(?:\s+of\s+the\s+(?:square|hexagon|piece))?\b/g, ' ')
+    .replace(/\b(in|into)\s+(?:the\s+)?(?:next\s+)?corner\s+(?:tr|dc|hdc|sc|st|stitch|treble)\b/g, '$1 next st')
+    .replace(/\b(?:rep(?:eat)?\s+from\s+\*\s+)(?:for|on|along)\s+(?:each|every|all|the remaining|remaining)\s+(?:\d\s+)?sides?\b/g, 'rep from * around')
+    .replace(/(^|[.,;]\s*)in\s+(?:the\s+)?(?:last|final|first)\s+corner\s*,\s*/g, '$1 ')
+    .replace(/\bin\s+(?:the\s+)?base\s+of\s+(?:the\s+)?(?:beg(?:inning)?\s+|starting\s+|first\s+|turning\s+)?(?:ch|chain)(?:\s*-?\s*\d+)?\b/g, ' in start st ')
+    .replace(/\bto\s+(?:finish|complete|close|make)\s+(?:the|this|that)\s+(?:corner|side)\b/g, ' ')
+    // "sl st in next st of the ring": the next stitch, wherever it is
+    .replace(/\b(next\s+(?:\d+\s+)?(?:st|sts|stitch(?:es)?|ch))\s+of\s+(?:the\s+)?(?:ring|round|rnd|row|previous round|previous row|last round|last row)\b/g, '$1')
     // "sc around until 2 sts remain" keeps its meaning; "sc to the end" = around
     .replace(/\bto\s+(?:the\s+)?end(?:\s+of\s+(?:the\s+)?(?:row|round|rnd))?\b/g, ' around ')
     .replace(/\bsts?\s+left\b/g, ' st remain ');

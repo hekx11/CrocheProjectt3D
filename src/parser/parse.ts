@@ -3,7 +3,7 @@ import type {
 } from '../model/types';
 import { COLORS, DEFAULT_YARN_COLOR, FIBERS, WEIGHT_NAMES } from '../model/dictionary';
 import { detectTerms, normalize } from './normalize';
-import { countOf, execute, parseRowText } from './row';
+import { chainCountsAs, countOf, execute, parseRowText } from './row';
 
 // "Rnd 5:", "5.", "Rnds 6-10:", "Round 10 - Round 14:", "R4-6 sc around"
 const LABEL_RE = /^\s*(?:(rnds?|rounds?|rows?|r)\.?\s*)?(\d+)(?:\s*(?:-|–|—|to)\s*(?:(?:rnds?|rounds?|rows?|r)\.?\s*)?(\d+))?\s*[:.)](?!\d)\s*|^\s*(rnds?|rounds?|rows?|r)\.?\s*(\d+)(?:\s*(?:-|–|—|to)\s*(?:(?:rnds?|rounds?|rows?|r)\.?\s*)?(\d+))?\s+(?!(?:and|or|&)\b)/i;
@@ -120,12 +120,26 @@ function looksLikeHeading(line: string): boolean {
   return true;
 }
 
+/** A round piece decreased down to a few stitches is closed even when the pattern doesn't say so;
+ *  one that ends small without decreasing (an ear, a thin tube) stays open. */
+const smallEnd = (p: PieceDef): boolean => {
+  const last = p.rows[p.rows.length - 1]?.computedCount ?? 99;
+  return p.construction !== 'rows' && last <= 8 && last < Math.max(...p.rows.map((r) => r.computedCount));
+};
+
+const hasOtherSide = (ops: Op[]): boolean => ops.some((o) => o.kind === 'other-side' || (o.kind === 'repeat' && hasOtherSide(o.ops)));
+
+/** "sew the rectangle onto the body": the piece just made, named by its shape. */
+const SHAPE_WORDS = 'rectangle|square|circle|triangle|strip|oval|panel|tube|disc|disk|cone|band|flap|hexagon|heart|star';
+
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Previous row's stitch count as the next row sees it (shared with the row loop). */
-function prevOf(piece: PieceDef, pieces: PieceDef[] = []): { prevCount: number; ringMode: boolean } {
+function prevOf(piece: PieceDef, pieces: PieceDef[] = []): { prevCount: number; ringMode: boolean; prevTypes?: StitchType[] } {
   const prev = piece.rows[piece.rows.length - 1];
   if (!prev && piece.base) return { prevCount: baseCount(piece.base, pieces), ringMode: false };
+  // which stitches of the row below are chains (its chain spaces), in the order they are met
+  if (prev?.stitchTypes) return { prevCount: prev.computedCount, ringMode: false, prevTypes: piece.construction === 'rows' ? [...prev.stitchTypes].reverse() : prev.stitchTypes };
   const ringMode = !prev && (piece.start.kind === 'magic-ring' || (piece.start.kind === 'chain' && piece.start.ring));
   const prevCount = prev ? prev.computedCount : piece.start.kind === 'chain' && !piece.start.ring ? piece.start.n : 0;
   return { prevCount, ringMode };
@@ -255,6 +269,9 @@ export function parsePattern(text: string): Pattern {
   let pendingLegs: { piece: PieceDef; n: number } | null = null;
   /** "Stuff firmly as your work progresses" before the first piece: every round piece is stuffed. */
   let globalStuff: 'light' | 'firm' | null = null;
+  /** "Ch 3 counts as a dc throughout": a starting chain of that length is a stitch in every round. */
+  const thr = /\bch(?:ain)?\s*-?\s*(\d)\s*(?:at the (?:beginning|start) of (?:each|every) (?:round|row|rnd)\s*)?counts as (?:a |the |one |1 )?(?:first )?(sc|hdc|dc|tr|dtr|single crochet|half double crochet|double crochet|treble)\b[^.\n]*\bthroughout\b/i.exec(text);
+  const countsThroughout: { n: number; as: StitchType } | null = thr ? { n: +thr[1], as: (({ 'single crochet': 'sc', 'half double crochet': 'hdc', 'double crochet': 'dc', treble: 'tr' } as Record<string, StitchType>)[thr[2].toLowerCase()] ?? thr[2].toLowerCase()) as StitchType } : null;
   /** a pattern sheet with two figures: piece names repeat, sections tell them apart */
 
   const newPiece = (name: string, quantity: number, line: number): PieceDef => {
@@ -324,7 +341,7 @@ export function parsePattern(text: string): Pattern {
       const legChain = /^\s*ch (\d+)/.exec(normalized)?.[1] ?? (pendingLegs ? String(pendingLegs.n) : undefined);
       pendingLegs = null;
 
-      const needNew = !piece || (pending !== null && (finished || startsNew)) || (finished && startsNew) || (startsNew && a === 1 && piece.rows.length > 0) || (legs !== undefined && piece === legs);
+      const needNew = !piece || (pending !== null && (finished || startsNew || pendingStart !== null)) || (finished && startsNew) || (startsNew && a === 1 && piece.rows.length > 0) || (legs !== undefined && piece === legs);
       if (needNew) {
         const name = pending?.name ?? (legs ? 'Body' : pieces.length ? `Piece ${pieces.length + 1}` : title ?? 'Piece');
         piece = newPiece(name, pending?.quantity ?? 1, pending?.line ?? li);
@@ -362,7 +379,9 @@ export function parsePattern(text: string): Pattern {
       }
       lastLabel = b;
 
-      const leadingChIsTurning = piece.construction === 'rows' || piece.construction === 'joined-rounds' || /^\s*ch \d+\s*,/.test(normalized) && piece.rows.length > 0 && piece.start.kind === 'chain';
+      // a round that ends with a join starts with its starting chain ("Ch 2, 10 hdc in 2nd ch from hook, join")
+      const joinsHere = /\bjoin\b|\bslst (?:in|to) (?:the )?(?:top|first|beg)/.test(normalized);
+      const leadingChIsTurning = piece.construction === 'rows' || piece.construction === 'joined-rounds' || joinsHere || /^\s*ch \d+\s*,/.test(normalized) && piece.rows.length > 0 && piece.start.kind === 'chain';
       const rowOpts = { terms, leadingChIsTurning, src: lineSrc };
       let parsed = parseRowText(instr, { ...rowOpts, groupsInOne });
       const notesHere: string[] = [];
@@ -392,6 +411,14 @@ export function parsePattern(text: string): Pattern {
       }
       let readings: string[] | undefined;
       let pickNeeded = false;
+      // "ch 3 (counts as first dc)" said once (or "… throughout") holds for the later rounds of the piece
+      const said = /\bch\s*(\d)\s*\(?\s*counts as (?:a |the |one |1 )?(?:first |1st |beg\w* )?(sc|hdc|dc|tr|dtr)\b/.exec(normalized);
+      if (said) piece.countsAs = { n: +said[1], as: said[2] as StitchType };
+      else if (piece.countsAs ?? countsThroughout) {
+        const c = (piece.countsAs ?? countsThroughout)!;
+        const conv = chainCountsAs(parsed.ops, c.n, c.as);
+        if (conv) { parsed = { ...parsed, ops: conv }; notesHere.push(`the ch ${c.n} counts as a ${c.as}, as the pattern said earlier`); }
+      }
 
       // "Repeat rnd 3." / "Rnds 12-15: as rnd 11" / "repeat the previous round": copy that row's stitches.
       const ref = rowReference(normalized);
@@ -405,9 +432,9 @@ export function parsePattern(text: string): Pattern {
 
       // Count-guided search: when the stated count doesn't match, try the other ways the line can be read.
       if (parsed.expectedCount && !parsed.unreadable) {
-        const { prevCount, ringMode } = prevOf(piece, pieces);
+        const { prevCount, ringMode, prevTypes } = prevOf(piece, pieces);
         const want = parsed.expectedCount;
-        const countFor = (pr: typeof parsed) => countOf(execute(pr.ops, prevCount, ringMode), want.unit);
+        const countFor = (pr: typeof parsed) => countOf(execute(pr.ops, prevCount, ringMode, prevTypes), want.unit);
         if (countFor(parsed) !== want.n) {
           const hits = alternatives(instr, want.n)
             .map((a) => ({ a, pr: parseRowText(a, rowOpts) }))
@@ -418,7 +445,7 @@ export function parsePattern(text: string): Pattern {
             readings = hits.map((h) => h.a);
             if (hits.length === 1) notesHere.push(`read as "${hits[0].a}", the only reading that gives ${want.n}`);
             else pickNeeded = true;
-          } else if (want.unit === 'st' && execute(parsed.ops, prevCount, ringMode).stitches.length === want.n) {
+          } else if (want.unit === 'st' && execute(parsed.ops, prevCount, ringMode, prevTypes).stitches.length === want.n) {
             notesHere.push(`the stated count ${want.n} includes the chains`);
             parsed = { ...parsed, expectedCount: { n: countFor(parsed), unit: 'st' } };
           }
@@ -446,8 +473,8 @@ export function parsePattern(text: string): Pattern {
       // A partial round ("… sl st to the next st, fasten off (20 sts)") counts the stitches it left
       // unworked: they carry on into the next round, which works across both.
       if (parsed.expectedCount?.unit === 'st' && piece.construction !== 'rows' && !parsed.turn) {
-        const { prevCount, ringMode } = prevOf(piece, pieces);
-        const ex = execute(parsed.ops, prevCount, ringMode);
+        const { prevCount, ringMode, prevTypes } = prevOf(piece, pieces);
+        const ex = execute(parsed.ops, prevCount, ringMode, prevTypes);
         const got = countOf(ex, 'st');
         if (got !== parsed.expectedCount.n && ex.leftover > 0 && got + ex.leftover === parsed.expectedCount.n) {
           const carry: Op = { kind: 'stitch', type: 'slst', target: { kind: 'next' }, loop: 'both', tension: 1, consumes: 1, src: lineSrc, carry: true };
@@ -458,6 +485,12 @@ export function parsePattern(text: string): Pattern {
       if (parsed.colorChange) yarnId = ensureYarn(parsed.colorChange);
       // a turned row inside a round piece (a hairline worked back and forth) stays a round piece
       if (parsed.turn && (piece.construction === 'rows' || piece.rows.length < 3)) piece.construction = 'rows';
+      // "…, working on the other side of the chain, …": rounds all the way round the chain (an oval)
+      if (piece.rows.length === 0 && piece.start.kind === 'chain' && !piece.start.ring && hasOtherSide(parsed.ops)) {
+        piece.oval = true;
+        piece.construction = parsed.join ? 'joined-rounds' : 'spiral';
+      }
+      if (piece.oval && piece.construction === 'rows' && !parsed.turn) piece.construction = 'spiral';
       if (parsed.join && piece.construction === 'spiral') piece.construction = 'joined-rounds';
       if (parsed.stuffing) piece.stuffing = parsed.stuffing === 'none' ? 'none' : parsed.stuffing;
 
@@ -465,8 +498,8 @@ export function parsePattern(text: string): Pattern {
       const sec = section();
       for (let label = a; label <= b; label++) {
         const prev = piece.rows[piece.rows.length - 1];
-        const { prevCount, ringMode } = prevOf(piece, pieces);
-        const ex = execute(parsed.ops, prevCount, ringMode);
+        const { prevCount, ringMode, prevTypes } = prevOf(piece, pieces);
+        const ex = execute(parsed.ops, prevCount, ringMode, prevTypes);
         const computed = countOf(ex, parsed.expectedCount?.unit ?? 'st');
         const stitchCount = countOf(ex, 'st') + (ex.stitches.some((s) => s.isChain) && countOf(ex, 'st') === 0 ? ex.stitches.length : 0);
         const row: RowDef = {
@@ -474,6 +507,7 @@ export function parsePattern(text: string): Pattern {
           expectedCount: parsed.expectedCount, computedCount: ex.stitches.length ? ex.stitches.length : stitchCount,
           yarnId, join: parsed.join, turn: parsed.turn, line: li, src: lineSrc, status: 'ok',
         };
+        row.stitchTypes = ex.stitches.map((q) => q.type);
         // "computedCount" in the graph sense = all produced stitches the next row can work into
         row.computedCount = ex.stitches.length;
         if (strands) { row.skipGeometry = true; row.computedCount = prev?.computedCount ?? 0; if (strandList?.length) row.strands = strandList; }
@@ -511,7 +545,7 @@ export function parsePattern(text: string): Pattern {
       info.row = piece.rows.find((r) => r.line === li)?.index;
       if (parsed.fastenOff) {
         finished = true;
-        piece.finish = parsed.tail ? 'open-with-tail' : parsed.close || (piece.rows[piece.rows.length - 1]?.computedCount ?? 99) <= 8 ? 'closed' : 'open';
+        piece.finish = parsed.tail ? 'open-with-tail' : piece.construction === 'rows' ? 'open' : parsed.close || smallEnd(piece) ? 'closed' : 'open';
       }
       continue;
     }
@@ -520,7 +554,8 @@ export function parsePattern(text: string): Pattern {
     const isMat = readMaterials(body, { yarns: [] }, terms);
     const yarnLine = /^(?:(?:make|x)\s*\d+\s*,?\s*)?(?:start(?:ing)?\s+)?(?:in|with|use|using)\s+.{1,30}?\s+(?:colou?r\s+)?yarn\s*[:.]?\s*$/i.test(body.trim()) || /^(?:with|in|using)\s+[a-z ]{1,24}?\s*:?\s*$/i.test(body.trim()) && !!colorIn(body);
     if (isMat && !sawRow && !yarnLine) { info.kind = 'material'; continue; }
-    const n = normalize(body, terms);
+    // "Foundation Ring: Chain 5 and join …", "Foundation chain: ch 21"
+    const n = normalize(body.replace(/^\s*(?:foundation(?:\s+(?:ring|chain|row))?|starting chain|set-?up(?:\s+(?:ring|chain))?)\s*:\s*/i, ''), terms);
 
     // Start lines: "Ch 16." / "Ch 4 and join with a sl st to form a ring" / "Make a magic ring"
     const ch = /^ch (\d+)\b(.*)$/.exec(n);
@@ -644,7 +679,7 @@ export function parsePattern(text: string): Pattern {
         kind = 'finish';
         if (p) {
           finished = true;
-          p.finish = /tail|for sewing/.test(s) ? 'open-with-tail' : /close/.test(s) || (p.rows[p.rows.length - 1]?.computedCount ?? 99) <= 8 ? 'closed' : 'open';
+          p.finish = /tail|for sewing/.test(s) ? 'open-with-tail' : /close/.test(s) || smallEnd(p) ? 'closed' : 'open';
         }
       }
       if (/(do not|don't|doesn't|does not|don’t|doesn’t) (need to be )?stuff/.test(s)) { if (p) p.stuffing = 'none'; kind = 'marker'; }
@@ -662,7 +697,7 @@ export function parsePattern(text: string): Pattern {
       else if (p && /\bflat(ten)?\b[^.]*\b(bottom|base)\b|\b(bottom|base)\b[^.]*\bflat/.test(s)) { (p.shape ??= {}).flatBottom = true; kind = 'marker'; }
       // "flatten the upper part of the arm and close it" flattens only the opening, not the piece
       else if (/\bflatten/.test(s) && p && !/\bflatten (?:only )?(?:the )?(?:upper|top|end|opening|last)\b/.test(s)) { p.flatten = true; kind = 'marker'; }
-      else if (/\bflatten/.test(s)) kind = 'marker';
+      else if (/\bflatten/.test(s)) { if (p) p.flatEdge = true; kind = 'marker'; }
       if (p && /\b(shape|mould|mold|form)\b[^.]*\b(oval|egg)/.test(s)) { (p.shape ??= {}).oval = true; kind = 'marker'; }
       if (!p) continue;
       const between = /(?:between|over|across)\s+(?:rnds?|rows?|rounds?|r)\.?\s*(\d+)\s*(?:and|&|-|to)\s*(?:(?:rnds?|rows?|rounds?|r)\.?\s*)?(\d+)/.exec(s);
@@ -679,7 +714,7 @@ export function parsePattern(text: string): Pattern {
         const subj = subjText ? namedPiece(subjText, pieces) : undefined;
         // "glue a stick to the umbrella", "sew the ch to …": not a piece being joined
         const subjNoun = subjText.replace(new RegExp(`\\b(?:${COLOR_NAMES.join('|')})\\b`, 'g'), ' ');
-        if (!subj && /\b(?!(?:it|them|this|these|the|a|an|piece|pieces|part|parts|both|each|all|yarn|tail|tails|ends?|with|using|your|and|in|loosely|firmly|securely|together|on|up)\b)[a-z]{2,}\b/.test(subjNoun)) continue;
+        if (!subj && new RegExp(String.raw`\b(?!(?:it|them|this|these|the|a|an|piece|pieces|part|parts|both|each|all|yarn|tail|tails|ends?|with|using|your|and|in|loosely|firmly|securely|together|on|up|${SHAPE_WORDS})\b)[a-z]{2,}\b`).test(subjNoun)) continue;
         if (/\b(?:do not|don't|don’t|never)\s+(?:sew|glue|attach)\b/.test(s)) continue;
         const p = subj ?? piece;
         if (!p) continue;
@@ -694,7 +729,7 @@ export function parsePattern(text: string): Pattern {
         const named = namedPiece(primary, pieces, p) ?? namedPiece(hostText, pieces, p);
         const host = named ?? mainPiece(pieces, p);
         if (host) {
-          const hint: Seam['hint'] = wrap ? 'wrap' : /\b(pom ?pom|antenna|bobble)/.test(p.name.toLowerCase()) && !/\b(side|front|back|bottom)\b/.test(s) ? 'top' : /below (the )?eyes/.test(s) ? 'below-eyes' : /\btop\b/.test(s) ? 'top' : /\bsides?\b/.test(s) ? 'side' : /\bfront\b/.test(s) ? 'front' : /\bback\b(?!\s+loops?)/.test(s) ? 'back' : /\bbottom\b/.test(s) ? 'bottom' : 'default';
+          const hint: Seam['hint'] = wrap ? 'wrap' : /\b(pom ?pom|antenna|bobble)/.test(p.name.toLowerCase()) && !/\b(side|front|back|bottom)\b/.test(s) ? 'top' : /below (the )?eyes/.test(s) ? 'below-eyes' : /\btop\b/.test(s) ? 'top' : /\bsides?\b/.test(s) ? 'side' : /\bfront\b/.test(s) ? 'front' : /\bback\b(?!\s+loops?)/.test(s) ? 'back' : /\b(?:bottom|underside|underneath)\b/.test(s) ? 'bottom' : 'default';
           const seam: Seam = { piece: p.id, host: host.id, hint, text: snt.text.trim(), line: li, src, spacingSts: spacing ? +(spacing[1] ?? spacing[2]) : undefined };
           if (wrap) seam.wrapAt = wrap[1];
           if (between) { seam.rowA = resolveRow(host, +between[1], li, src); seam.rowB = resolveRow(host, +between[2], li, src); }
@@ -733,6 +768,20 @@ export function parsePattern(text: string): Pattern {
         // cheeks with no row given: level with the eyes, a little further out
         const cheeks = /cheek|blush/.test(s);
         if (row === undefined && cheeks && eyes) row = Math.min(eyes.rowA, eyes.rowB ?? eyes.rowA);
+        // embroidered eyes with no row given ("as shown on the chart"), on a face with a nose sewn
+        // on at given rounds: just above the nose, a little wider apart than the nose is wide
+        if (row === undefined && !eyes && /\beyes?\b/.test(s) && /\bembroider/.test(s)) {
+          const nose = seams.find((q) => q.rowA !== undefined && /\b(?:nose|snout|muzzle)\b/i.test(pieces.find((x) => x.id === q.piece)?.name ?? ''));
+          const host = nose && pieces.find((x) => x.id === nose.host);
+          const np = nose && pieces.find((x) => x.id === nose.piece);
+          if (nose && host && np?.rows.length) {
+            const top = Math.min(nose.rowA!, nose.rowB ?? nose.rowA!);
+            const wide = np.rows[np.rows.length - 1].computedCount;
+            host.markers.push({ kind: 'embroidery', rowA: Math.max(1, top - 1), spacingSts: Math.max(4, Math.round(wide * 0.6)), text: snt.text.trim(), line: li, src });
+            diagnostics.push({ severity: 'info', code: 'assumption', line: li, src, message: `No round given for the eyes: embroidered on ${host.name} just above the ${np.name.toLowerCase()}, round ${Math.max(1, top - 1)}.` });
+            continue;
+          }
+        }
         if (row !== undefined) p.markers.push({ kind: 'embroidery', rowA: row, spacingSts: cheeks && eyes ? (eyes.spacingSts ?? 6) + 6 : eyes?.spacingSts, text: snt.text.trim(), line: li, src });
         continue;
       }
@@ -746,8 +795,8 @@ export function parsePattern(text: string): Pattern {
 
   // Post-process pieces.
   for (const p of pieces) {
-    if (p.start.kind === 'chain' && !p.start.ring && p.construction === 'spiral') p.construction = 'rows';
-    if (p.finish === 'open' && p.construction !== 'rows' && (p.rows[p.rows.length - 1]?.computedCount ?? 99) <= 8) p.finish = 'closed';
+    if (p.start.kind === 'chain' && !p.start.ring && p.construction === 'spiral' && !p.oval) p.construction = 'rows';
+    if (p.finish === 'open' && p.construction !== 'rows' && smallEnd(p)) p.finish = 'closed';
     if (p.stuffing === 'unspecified' && globalStuff && p.construction !== 'rows' && !p.flatten && p.rows.length >= 2) p.stuffing = globalStuff;
     if (p.stuffing === 'unspecified') {
       if (p.construction !== 'rows' && p.finish === 'closed') {

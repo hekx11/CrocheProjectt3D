@@ -1,4 +1,4 @@
-import type { Loop, Pattern, PieceDef, StitchType } from '../model/types';
+import type { Loop, Pattern, PieceDef, RowDef, StitchType } from '../model/types';
 import { execute } from '../parser/row';
 import { heightFactor, widthFactor, type Sizing } from '../geometry/sizing';
 
@@ -33,6 +33,9 @@ export interface GRow {
   anchors: number[]; // per node: index into previous row's production order (-1: none)
   closed: boolean; // round (wraps) vs flat row
   ring?: number; // centre node id for first rounds
+  /** Corners of a square or hexagon motif: indices in nodes of the middle of each big group of
+   *  stitches worked into one place ("(3 dc, ch 2, 3 dc) in corner sp", "(2 dc, tr, 2 dc) in corner"). */
+  corners?: number[];
   loop: Loop;
   line: number;
 }
@@ -61,6 +64,23 @@ export interface StitchGraph {
   instances: PieceInstance[];
 }
 
+/**
+ * Rounds that stop increasing turn up into a wall: a basket, a bowl, a hat. Two or more rounds in a
+ * row that add no stitches make a cup, not a flat circle (a coaster or a granny square keeps
+ * increasing every round, with at most one plain round, a picot or a border, at its edge).
+ */
+export function risesUp(piece: PieceDef): boolean {
+  let run = 0;
+  for (let i = 1; i < piece.rows.length; i++) {
+    const r = piece.rows[i];
+    if (r.skipGeometry) continue;
+    run = countOfRow(r) <= countOfRow(piece.rows[i - 1]) ? run + 1 : 0;
+    if (run >= 2) return true;
+  }
+  return false;
+}
+const countOfRow = (r: RowDef) => (r.stitchTypes ? r.stitchTypes.filter((c) => c !== 'ch').length : r.computedCount);
+
 export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
   const nodes: GNode[] = [];
   const edges: GEdge[] = [];
@@ -72,7 +92,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       const pi: PieceInstance = {
         piece, inst, rows: [], nodeIds: [],
         stuffed: piece.stuffing === 'firm' ? 1 : piece.stuffing === 'light' ? 0.75 : 0,
-        flat: piece.flatten || (piece.construction === 'rows') || (piece.stuffing === 'none' && piece.construction === 'joined-rounds'),
+        flat: piece.flatten || (piece.construction === 'rows') || (piece.stuffing === 'none' && piece.construction === 'joined-rounds' && !risesUp(piece)),
       };
       instances.push(pi);
       const add = (n: Omit<GNode, 'id'>) => {
@@ -93,10 +113,14 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       if (piece.base) {
         // worked into other pieces: their rows (already built) and any chains between them
         let chain: number[] = [];
+        // a chain between two pieces is made from the one and joined into the other ("ch 6, insert
+        // hook into leg 1"): tied to both, it spans the gap between them instead of floating
+        let openChain: number[] | null = null;
         for (const part of piece.base) {
           if (part.kind === 'ch') {
             if (part.back) { prevWork.push(...[...chain].reverse()); continue; }
             chain = [];
+            const before = prevWork[prevWork.length - 1];
             for (let i = 0; i < part.n; i++) {
               const id = add({ key: `${piece.name}:${inst}:base:${i}`, piece: piece.id, inst, row: 0, idx: i, u: i, type: 'ch', loop: 'both', w: sz.w, h: sz.h * 0.5, color: firstColor, yarn: firstYarn, line: piece.rows[0]?.line ?? -1, virtual: false });
               if (lastYarnNode >= 0) edges.push({ a: lastYarnNode, b: id, kind: 'yarn', rest: sz.w });
@@ -104,12 +128,21 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
               chain.push(id);
               (pi.baseChains ??= []).push(id);
             }
+            if (before !== undefined && chain.length) edges.push({ a: before, b: chain[0], kind: 'yarn', rest: sz.w });
+            // pulled taut across the gap by the stitches worked along both its sides: straight
+            if (chain.length >= 3) edges.push({ a: chain[0], b: chain[chain.length - 1], kind: 'join', rest: sz.w * (chain.length - 1) });
+            openChain = chain;
             prevWork.push(...chain);
             continue;
           }
           const src = instances.find((q) => q.piece.id === part.piece && q.inst === Math.min(part.inst, q.piece.quantity - 1) && (part.inst < q.piece.quantity || q.inst === inst));
           const r = src?.rows.find((q) => q.row === part.row);
-          if (r) prevWork.push(...(src!.piece.construction === 'rows' ? [...r.nodes].reverse() : r.nodes));
+          if (r) {
+            const nodesIn = src!.piece.construction === 'rows' ? [...r.nodes].reverse() : r.nodes;
+            if (openChain?.length && nodesIn.length) edges.push({ a: openChain[openChain.length - 1], b: nodesIn[0], kind: 'yarn', rest: sz.w });
+            openChain = null;
+            prevWork.push(...nodesIn);
+          }
         }
         prevRow = { piece: piece.id, inst, row: 0, nodes: prevWork, anchors: prevWork.map(() => -1), closed: true, loop: 'both', line: -1 };
         pi.baseRow = prevRow;
@@ -142,7 +175,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
           }
           continue;
         }
-        const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode);
+        const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode, prevWork.map((id) => nodes[id]?.type as StitchType));
         const color = yarnColor.get(r.yarnId) ?? firstColor;
         const yarn = yarnColor.has(r.yarnId) ? r.yarnId : firstYarn;
         const row: GRow = { piece: piece.id, inst, row: r.index, nodes: [], anchors: [], closed: piece.construction !== 'rows' && !r.turn && !shortRows, loop: 'both', line: r.line };
@@ -174,9 +207,30 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
             const pidx = prodIndexOf.get(tid) ?? -1;
             if (anchor < 0) anchor = pidx;
           }
+          // worked back along a chain made in this row (a leaf, a spike): held by that chain stitch
+          if (s.onChain !== undefined && row.nodes[s.onChain] !== undefined) edges.push({ a: row.nodes[s.onChain], b: id, kind: 'into', rest: sz.h * hf });
           row.nodes.push(id);
           row.anchors.push(anchor);
         });
+        if (!ringMode) {
+          // runs of stitches worked into one place (chains between them allowed); five or more is a corner
+          const runs: { start: number; end: number; target: number; count: number }[] = [];
+          ex.stitches.forEach((s, i) => {
+            if (s.isChain || s.onChain !== undefined) return;
+            const t = s.targets.length === 1 ? s.targets[0] : -1;
+            const cur = runs[runs.length - 1];
+            if (cur && t >= 0 && t === cur.target) { cur.count++; cur.end = i; return; }
+            runs.push({ start: i, end: i, target: t, count: 1 });
+          });
+          // a corner made half at the start of the round and finished at its end ("2 dc in the base of the ch 4")
+          const M = ex.stitches.length;
+          if (runs.length > 1 && runs[0].target >= 0 && runs[0].target === runs[runs.length - 1].target) {
+            const last = runs.pop()!;
+            runs[0] = { start: last.start - M, end: runs[0].end, target: last.target, count: runs[0].count + last.count };
+          }
+          const corners = runs.filter((q) => q.count >= 5).map((q) => (Math.floor((q.start + q.end) / 2) + M) % M).sort((a, b) => a - b);
+          if (corners.length >= 3) row.corners = corners;
+        }
         if (loops > ex.stitches.length / 2) row.loop = ex.stitches.find((s) => s.loop !== 'both')!.loop;
         // fill anchors for chains (no target): carry previous
         for (let i = 0; i < row.anchors.length; i++) if (row.anchors[i] < 0 && i > 0) row.anchors[i] = row.anchors[i - 1];
