@@ -34,50 +34,75 @@ const polar = (ang: number, r: number, z: number) => put(Math.cos(ang) * r, Math
  * (0 where it is worked, 1 its top), z out of the work (in stitch widths, + towards the right side).
  * The stitch narrows from its top to where it is worked, the way stitches fan out round a circle.
  */
-interface Place { angTop: number; angBot: number; rBot: number; rTop: number; widthTop: number; widthBot: number }
+interface Place { angTop: number; angBot: number; rBot: number; rTop: number; widthTop: number; widthBot: number; dip: number }
 function stitch(at: Place, path: P[]) {
   for (const [a, s, z] of path) {
     const k = Math.min(1, Math.max(0, s));
     const ang = at.angBot + (at.angTop - at.angBot) * k + a * (at.widthBot + (at.widthTop - at.widthBot) * k);
-    polar(ang, at.rBot + (at.rTop - at.rBot) * s, z * W);
+    // below 0 the yarn goes under what the stitch is worked into: s = -1 is right under it
+    polar(ang, s >= 0 ? at.rBot + (at.rTop - at.rBot) * s : at.rBot + s * at.dip, z * W);
   }
 }
 
-// An sc, as the yarn goes: from the top of the stitch before, down the front (the left leg of the
-// "v"), in through what it is worked into and round behind it, back out and up the front (the right
-// leg), then the loop pulled through on the hook, which lies along the top as the next "v" on the
-// edge: its front strand forwards, round the hook, its back strand back, and on to the next stitch.
+// An sc, following the four steps of the stitch. A loop sits on the hook from the stitch before.
+//  1. insert the hook under the top "v" of the stitch below (in round 1: into the ring);
+//  2. yarn over and pull up a loop: a bight of yarn, caught behind, comes through under that "v"
+//     to the front and up to the hook. Its two strands are the "v" seen on the front of an sc;
+//  3. yarn over again;
+//  4. pull through both loops: the new loop goes through the tip of the loop just pulled up and
+//     through the loop from the stitch before, and stays on the hook. Pulled snug it lies along the
+//     top of the stitch, pointing on to the next one (which closes it): the top "v" of the stitch.
+// So the yarn goes: from the previous loop down the back to where the stitch is worked, under it to
+// the front, up the front, round the new loop, down the front, under it to the back, up the back,
+// then along the top (back strand out, round the hook, front strand back) and through to the back,
+// where the next stitch begins. The strands behind are the bars seen on the wrong side of sc.
 const SC: P[] = [
-  [-0.36, 0.88, 0.1],
-  [-0.2, 0.7, 0.22],
-  [-0.13, 0.35, 0.24],
-  [-0.07, 0.04, 0.14], // into the stitch below (or the ring)
-  [0, -0.12, -0.2], //    round behind it
-  [0.07, 0.04, 0.14], //  and back out
-  [0.13, 0.35, 0.24],
-  [0.19, 0.7, 0.22],
-  [0.12, 0.9, 0.2], //    the new loop: front strand along the top
-  [0.34, 0.99, 0.15],
-  [0.54, 1.02, 0.0], //   round the hook (the next stitch goes through here)
-  [0.34, 0.98, -0.16], // back strand
-  [0.02, 0.93, -0.16],
+  [-0.55, 0.6, -0.3], //   down the back from the previous loop
+  [-0.22, 0.14, -0.3],
+  [-0.07, -1, -0.32], //   2. caught behind, under the "v" below (or round the ring)
+  [-0.09, -1, 0.28], //       out to the front
+  [-0.17, 0.3, 0.26], //      up the front: left arm of the "v"
+  [-0.15, 0.72, 0.24],
+  [-0.07, 0.98, 0.15], //     the tip of the loop, round the new loop
+  [0.01, 1.05, -0.03],
+  [0.09, 0.97, 0.13],
+  [0.15, 0.72, 0.24], //      down the front: right arm of the "v"
+  [0.16, 0.3, 0.26],
+  [0.09, -1, 0.28], //        under the "v" below again
+  [0.07, -1, -0.32],
+  [0.14, 0.42, -0.3], //   3. yarn over: up the back to the hook
+  [0.08, 0.84, -0.24],
+  [0.02, 0.99, -0.14], //  4. through both loops: the new loop along the top
+  [0.36, 1.0, -0.18], //      back strand
+  [0.7, 1.02, -0.06], //      round the hook: the next stitch closes it
+  [0.76, 1.0, 0.08],
+  [0.4, 1.0, 0.18], //        front strand
+  [0.04, 0.98, 0.12],
+  [-0.06, 0.9, -0.16], //     back through to the wrong side
 ];
-// A sl st: in under the top of the stitch and straight through the loop on the hook, no height.
+// A sl st: insert the hook, yarn over, pull through the stitch and the loop on the hook at once.
+// One bight, under the "v" and straight on through the loop: no height.
 const SLST: P[] = [
-  [-0.3, 0.98, 0.14],
-  [-0.08, 0.9, 0.2],
-  [0, 0.84, -0.18], // under the top "v"
-  [0.1, 0.92, 0.18],
-  [0.3, 1.04, 0.06],
+  [-0.3, 0.86, -0.26],
+  [0.2, 0.8, -0.3],
+  [0.36, 0.78, 0.28], // under the top "v" (centred half a stitch on) to the front
+  [0.42, 1.0, 0.18],
+  [0.7, 1.06, 0.1], //   the new loop, lying along the top
+  [0.9, 1.02, -0.04],
+  [0.7, 1.0, -0.16],
+  [0.42, 0.86, -0.22],
 ];
-// A ch 1 at the start of a round: a loop pulled up to the height of the round, lying on the edge.
+// A ch 1 at the start of a round: yarn over, pull through the loop on the hook. The new loop is
+// pulled up to the height of the round: two strands up, its tip at the top, and through to the back.
 const CH_UP: P[] = [
-  [0.0, 0.35, 0.12],
-  [-0.1, 0.75, 0.18],
-  [-0.18, 0.98, 0.1],
-  [0.1, 1.06, 0.08],
-  [0.3, 0.96, -0.1],
-  [0.05, 0.9, -0.14],
+  [0.0, 0.15, -0.12],
+  [-0.12, 0.4, 0.14],
+  [-0.12, 0.82, 0.16],
+  [0.0, 1.02, 0.06], //  tip
+  [0.12, 0.82, -0.06],
+  [0.12, 0.4, -0.16],
+  [0.02, 0.35, -0.22],
+  [-0.1, 0.8, -0.26],
 ];
 
 // ------------------------------------------------------------------ the tail and the magic ring
@@ -98,7 +123,8 @@ for (let k = 0; k <= RING_PTS; k++) {
 // ------------------------------------------------------------------ round 1
 round = 1;
 const N1 = 6, step1 = (2 * Math.PI) / N1;
-const ring = (angTop: number): Place => ({ angTop, angBot: angTop, rBot: RING_R, rTop: R1, widthTop: step1, widthBot: step1 * 0.5 });
+// round 1 is worked round the ring strands: under them is the hole in the middle
+const ring = (angTop: number): Place => ({ angTop, angBot: angTop, rBot: RING_R, rTop: R1, widthTop: step1, widthBot: step1 * 0.5, dip: RING_R * 0.85 });
 stage('Rnd 1: ch 1');
 stitch(ring(-0.5 * step1), CH_UP);
 for (let i = 0; i < N1; i++) {
@@ -112,12 +138,15 @@ stitch(ring(N1 * step1), SLST);
 round = 2;
 const N2 = 12, step2 = (2 * Math.PI) / N2;
 // two in each stitch of round 1: both stand on that stitch's top, fanned out over it
+// The top "v" of a round 1 stitch lies along the edge from the stitch on towards the next one, so
+// the hole under it, where round 2 goes in, is half a stitch on from the stitch's own legs.
+const HOLE = 0.38;
 const inc = (parent: number, j: number): Place => ({
-  angTop: parent * step1 + (j - 0.5) * step2 + 0.15 * step2, angBot: parent * step1,
-  rBot: R1, rTop: R2, widthTop: step2, widthBot: step2 * 0.45,
+  angTop: (parent + HOLE) * step1 + (j - 0.5) * step2, angBot: (parent + HOLE) * step1,
+  rBot: R1, rTop: R2, widthTop: step2, widthBot: step2 * 0.35, dip: 2 * YARN_R,
 });
 stage('Rnd 2: ch 1');
-stitch({ angTop: -0.45 * step2, angBot: 0.1 * step1, rBot: R1, rTop: R2, widthTop: step2, widthBot: step2 }, CH_UP);
+stitch({ angTop: (HOLE - 0.5) * step1, angBot: (HOLE - 0.3) * step1, rBot: R1, rTop: R2, widthTop: step2, widthBot: step2, dip: 0 }, CH_UP);
 for (let p = 0; p < N1; p++) for (let j = 0; j < 2; j++) {
   stage(`Rnd 2: sc ${p * 2 + j + 1}${j === 0 ? '' : ' (same st: increase)'}`);
   stitch(inc(p, j), SC);
@@ -233,5 +262,6 @@ if (q.has('t')) slider.value = q.get('t')!;
 if (q.has('rounds')) { (document.getElementById('rounds') as HTMLInputElement).checked = true; paint(true); }
 if (q.has('side')) camera.position.set(0, -75, 18);
 if (q.has('back')) camera.position.set(0, 38, -70);
+if (q.has('cam')) { const [x, y, z, tx, ty, tz] = q.get('cam')!.split(',').map(Number); camera.position.set(x, y, z); controls.target.set(tx || 0, ty || 0, tz || 0); }
 show();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
