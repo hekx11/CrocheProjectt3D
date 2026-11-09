@@ -418,7 +418,12 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
 
   function peekWasTargetNext(start: number): boolean {
     // true when the phrase contained "in next st" (single target) — n stitches go into one stitch
-    for (let i = start; i < pos; i++) if (toks[i].t === 'in' && (toks[i + 1]?.t === 'next' || toks[i + 1]?.t === 'st')) return true;
+    // also "in the next st", "in last st", "in first st"
+    for (let i = start; i < pos; i++) {
+      if (toks[i].t !== 'in') continue;
+      const j = toks[i + 1]?.t === 'the' ? i + 2 : i + 1;
+      if (['next', 'st', 'last', 'first'].includes(toks[j]?.t)) return true;
+    }
     return false;
   }
 

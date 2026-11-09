@@ -151,7 +151,7 @@ export type BasePart =
 
 export interface Diagnostic {
   severity: 'error' | 'warning' | 'info';
-  code: 'count-mismatch' | 'unknown-token' | 'ambiguous' | 'row-sequence' | 'unresolved-reference' | 'assumption';
+  code: 'count-mismatch' | 'words-mismatch' | 'unknown-token' | 'ambiguous' | 'row-sequence' | 'unresolved-reference' | 'assumption';
   message: string;
   line: number;
   src: Span;

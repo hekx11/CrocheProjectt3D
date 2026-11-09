@@ -2,6 +2,7 @@ import type {
   BasePart, Diagnostic, Loop, LineInfo, Marker, Materials, Op, Pattern, PieceDef, RowDef, Seam, Section, Span, StitchType, Yarn,
 } from '../model/types';
 import { COLORS, DEFAULT_YARN_COLOR, FIBERS, WEIGHT_NAMES } from '../model/dictionary';
+import { wordsVsReading } from './consistency';
 import { detectTerms, normalize } from './normalize';
 import { chainCountsAs, countOf, execute, parseRowText } from './row';
 
@@ -531,6 +532,13 @@ export function parsePattern(text: string): Pattern {
               status = 'ambiguous';
               diagnostics.push({ severity: 'warning', code: 'unknown-token', line: li, src: lineSrc, message: `Skipped words I couldn't read: "${skipped.join(' ')}". If they matter, add "=> …" with short syntax.` });
             } else if (parsed.ignored.length) notes.push(`ignored: "${parsed.ignored.join(' ')}"`);
+            // The count can match while the reading drops or adds stitches the words name.
+            const isReference = /\b(?:rep(?:eat)?|as(?: for)?|same as)\b[^,;]*\b(?:r|rnds?|rounds?|rows?)\s*\d|\bprevious (?:rnd|round|row)\b/i.test(instr);
+            const mismatch = status === 'ok' && annotation === null && !strands && !isReference ? wordsVsReading(normalized, ex, !ringMode && prevCount > 0, groupsInOne, !prev || prev.status === 'ok' || prev.status === 'assumption') : null;
+            if (mismatch) {
+              status = 'ambiguous';
+              diagnostics.push({ severity: 'warning', code: 'words-mismatch', line: li, src: lineSrc, message: mismatch });
+            }
             if (!parsed.expectedCount && ex.leftover > 0 && prev) notes.push(`${ex.leftover} stitch(es) of the previous row left unworked`);
             if (notes.length) {
               if (status === 'ok') status = 'assumption';
