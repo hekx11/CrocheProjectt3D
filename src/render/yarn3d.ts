@@ -152,7 +152,7 @@ function fibreMask(look: YarnLook): THREE.DataTexture {
   return tex;
 }
 
-interface Step { node: number; parent: number; prev: number; next: number; kind: Kind; pp: number; np: number; fan: boolean }
+interface Step { node: number; parent: number; parent2: number; prev: number; next: number; kind: Kind; pp: number; np: number; fan: boolean }
 interface Ring { centre: number; magic: boolean; n: number; first: number[] }
 /** close: a piece finished closed ("fasten off, weave through the front loops and pull tight"):
  *  its last round, which the tail is threaded through and drawn together. */
@@ -201,6 +201,9 @@ export class Yarn3D {
     const nodes = g.nodes;
     const parent = new Int32Array(nodes.length).fill(-1);
     for (const e of g.edges) if (e.kind === 'into' && parent[e.b] < 0) parent[e.b] = e.a;
+    // a decrease is worked into two stitches below
+    const parent2 = new Int32Array(nodes.length).fill(-1);
+    for (const e of g.edges) if (e.kind === 'into' && parent[e.b] >= 0 && parent[e.b] !== e.a && parent2[e.b] < 0) parent2[e.b] = e.a;
     // a first round's stitches are worked into the ring
     for (const e of g.edges) if (e.kind === 'ring' && parent[e.b] < 0) parent[e.b] = e.a;
     // stitches worked into one space or loop (a granny square's 3-dc clusters, a shell): three or
@@ -224,7 +227,7 @@ export class Yarn3D {
         const next = j < ids.length - 1 ? ids[j + 1] : closed ? ids[0] : id;
         const kind = KIND_OF[n.type] ?? 'sc';
         const p = kind === 'ch' ? -1 : parent[id];
-        steps.push({ node: id, parent: p, prev, next, kind, pp: parent[prev], np: parent[next], fan: p >= 0 && (kids.get(p) ?? 0) >= 3 && nodes[p].type === 'ch' });
+        steps.push({ node: id, parent: p, parent2: kind === 'ch' ? -1 : parent2[id], prev, next, kind, pp: parent[prev], np: parent[next], fan: p >= 0 && (kids.get(p) ?? 0) >= 3 && nodes[p].type === 'ch' });
       });
       if (pi.baseChains) push(pi.baseChains, false);
       for (const row of pi.rows) push(row.nodes, row.closed);
@@ -459,7 +462,13 @@ export class Yarn3D {
         if (X.lengthSq() < 1e-12) X.set(1, 0, 0).addScaledVector(Z, -Z.x);
         X.normalize();
         P(id, C);
-        if (st.parent >= 0) up.subVectors(C, where(st.parent, a, C)); else up.crossVectors(Z, X);
+        // a decrease stands over the middle of the two stitches it joins, a leg in each
+        let split = 0;
+        if (st.parent >= 0 && st.parent2 >= 0) {
+          where(st.parent, a, C); where(st.parent2, b, C);
+          split = Math.max(-2.5 * w, Math.min(2.5 * w, up.subVectors(b, a).dot(X) / 2));
+          up.subVectors(C, a.add(b).multiplyScalar(0.5));
+        } else if (st.parent >= 0) up.subVectors(C, where(st.parent, a, C)); else up.crossVectors(Z, X);
         let h = up.length();
         Y.crossVectors(Z, X);
         // keep the strand's direction of travel: a stitch the other way up is seen from its back
@@ -494,6 +503,8 @@ export class Yarn3D {
         const map = (x: number, y: number, z: number, xs: number) => {
           q.copy(O).addScaledVector(X, xs * w).addScaledVector(Z, z * w);
           if (y >= 0) q.addScaledVector(U, y - 0.5); else q.addScaledVector(U, -0.5).addScaledVector(Ud, y * dip);
+          // a decrease's legs part towards the two stitches it is worked into
+          if (split && y < 0.3) q.addScaledVector(X, Math.sign(x) * split * 0.6 * Math.min(1, 1 - y / 0.3));
           put(q);
         };
         for (const [x, y, z] of TEMPLATE[st.kind]) map(x, y, z, x * (taper + (1 - taper) * Math.min(1, Math.max(0, y))));
