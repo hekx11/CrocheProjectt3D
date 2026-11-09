@@ -83,6 +83,12 @@ select, input[type='number'] { background: var(--panel); border: 1px solid var(-
 .panel input, .panel select { width: 140px; }
 .panel fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; padding: 4px 10px; }
 .panel fieldset input { width: 90px; }
+.yarn-color { display: flex; align-items: center; gap: 6px; }
+.yarn-color label { flex: 1; margin: 6px 0; min-width: 0; }
+.yarn-color label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel .yarn-color input[type='color'] { width: 44px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; flex: none; }
+.yarn-color .reset { padding: 2px 7px; line-height: 1.2; flex: none; }
+.yarn-color .reset[hidden] { display: inline-block; visibility: hidden; }
 .panel label.check { justify-content: flex-start; }
 .panel label.check input { width: auto; }
 .panel a { color: var(--accent); }

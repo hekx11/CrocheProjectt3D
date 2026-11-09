@@ -12,6 +12,8 @@ export interface MarkerAnchor {
    *  colour of the yarn it is stitched in, when the text names one */
   what?: 'nose' | 'cheek' | 'line';
   color?: string;
+  /** the pattern yarn that colour came from, when it is one (so a recolour follows it) */
+  yarn?: string;
 }
 
 export interface Seeded {
@@ -148,16 +150,16 @@ function nearestByAngle(g: StitchGraph, angle: Float32Array, ids: number[], targ
 }
 
 /** The yarn colour an embroidery is stitched in: a yarn of the pattern named in the text, or a colour word. */
-function markColor(p: Pattern, text: string): string | undefined {
+function markColor(p: Pattern, text: string): { color: string; yarn?: string } | undefined {
   const t = text.toLowerCase();
-  let best: { at: number; c: string } | undefined;
-  const consider = (word: string, c: string) => {
+  let best: { at: number; c: string; yarn?: string } | undefined;
+  const consider = (word: string, c: string, yarn?: string) => {
     const at = t.indexOf(word.toLowerCase());
-    if (word.length > 2 && at >= 0 && (!best || word.length > 0 && at < best.at)) best = { at, c };
+    if (word.length > 2 && at >= 0 && (!best || word.length > 0 && at < best.at)) best = { at, c, yarn };
   };
-  for (const y of p.materials.yarns) consider(y.label.replace(/\s*yarn$/i, ''), y.color);
+  for (const y of p.materials.yarns) consider(y.label.replace(/\s*yarn$/i, ''), y.color, y.id);
   if (!best) for (const [k, c] of Object.entries(COLORS)) consider(k, c);
-  return best?.c;
+  return best && { color: best.c, yarn: best.yarn };
 }
 
 function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAnchor[] {
@@ -173,11 +175,12 @@ function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAn
       // a nose is one mark in the middle; eyes and cheeks come in pairs
       const sides = m.kind === 'embroidery' && /\bnose\b/i.test(m.text) && !/eye|cheek/i.test(m.text) ? [0] : [-1, 1];
       const what = m.kind !== 'embroidery' ? undefined : /\bcheek|blush/i.test(m.text) ? 'cheek' : sides.length === 1 ? 'nose' : 'line';
-      const color = m.kind === 'embroidery' ? markColor(p, m.text) : undefined;
+      const mc = m.kind === 'embroidery' ? markColor(p, m.text) : undefined;
+      const color = mc?.color, yarn = mc?.yarn;
       for (const side of sides) {
         const th = FRONT + side * half;
         out.push({
-          what, color,
+          what, color, yarn,
           kind: m.kind,
           a: nearestByAngle(g, angle, ra, th),
           b: nearestByAngle(g, angle, rb, th),

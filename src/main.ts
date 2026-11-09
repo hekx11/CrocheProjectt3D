@@ -8,6 +8,7 @@ import { fabricThickness, type UserMaterials } from './geometry/sizing';
 import { CrochetView } from './render/scene';
 import type { Pattern } from './model/types';
 import { renderOutline } from './ui/outline';
+import { applyColorOverrides, patternKey, renderYarnColors, swatchList, yarnsInUse, type ColorOverrides } from './ui/yarnColors';
 import { importPdf, renderPage } from './pdf/extract';
 
 import ball from '../fixtures/ball.txt?raw';
@@ -65,7 +66,41 @@ function readMaterialsForm() {
 }
 syncMaterialsForm();
 for (const id of ['m-tension', 'm-hook', 'm-weight', 'm-fiber', 'm-w', 'm-h']) $(id).addEventListener('change', readMaterialsForm);
-$('m-reset').addEventListener('click', () => { user = { tension: 'normal' }; syncMaterialsForm(); readMaterialsForm(); });
+$('m-reset').addEventListener('click', () => {
+  user = { tension: 'normal' };
+  if (pattern) { delete colors[patternKey(pattern)]; saveColors(); }
+  syncMaterialsForm();
+  readMaterialsForm();
+});
+
+// ---------------------------------------------------------------- yarn colours
+let colors: ColorOverrides = {};
+try { colors = JSON.parse(store.get('crochet3d.colors') ?? '{}') ?? {}; } catch { /* ignore */ }
+const saveColors = () => store.set('crochet3d.colors', JSON.stringify(colors));
+let patternColors = new Map<string, string>(); // what the pattern itself says, per yarn id
+document.body.append(swatchList());
+let recolorFrame = 0;
+function pickColor(id: string, color: string | null) {
+  if (!pattern) return;
+  const key = patternKey(pattern);
+  const mine = (colors[key] ??= {});
+  const orig = patternColors.get(id);
+  if (color === null || color.toLowerCase() === orig?.toLowerCase()) delete mine[id];
+  else mine[id] = color;
+  if (!Object.keys(mine).length) delete colors[key];
+  saveColors();
+  const y = pattern.materials.yarns.find((q) => q.id === id);
+  if (y) y.color = mine[id] ?? orig ?? y.color;
+  showYarnColors();
+  // live: repaint the solved model in place, at most once a frame while a picker is dragged
+  cancelAnimationFrame(recolorFrame);
+  recolorFrame = requestAnimationFrame(() => {
+    if (pattern) view.recolor(new Map(pattern.materials.yarns.map((q) => [q.id, q.color])));
+  });
+}
+function showYarnColors() {
+  if (pattern) renderYarnColors($('m-colors'), yarnsInUse(pattern), patternColors, pickColor);
+}
 const toggleMaterials = (open?: boolean) => {
   const p = $('materials');
   const show = open ?? p.hidden;
@@ -141,6 +176,8 @@ function rebuild(force: boolean) {
   const text = editor.state.doc.toString();
   store.set('crochet3d.pattern', text);
   pattern = parsePattern(text);
+  patternColors = applyColorOverrides(pattern, colors);
+  showYarnColors();
   // diagnostics → editor
   const diags: CmDiagnostic[] = pattern.diagnostics.map((d) => ({
     from: Math.min(d.src.from, text.length), to: Math.min(Math.max(d.src.to, d.src.from), text.length),
