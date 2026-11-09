@@ -412,3 +412,26 @@ Fasten off. Sew the bow tie to the front of the body, just below of the head.
     expect(lean).toBeLessThan(5); // 9° forward when the bow was sewn on twice
   }, 60000);
 });
+
+describe('warm start after adding rows', () => {
+  it('rows added to a solved panel continue it instead of folding back over it', () => {
+    const panel = (n: number) => `Ch 16.\nRow 1: Sc in 2nd ch from hook and in each ch across, turn. (15)\nRows 2-${n}: Ch 1, sc in each st across, turn. (15)`;
+    const first = solve(panel(30));
+    const warm = new Map<string, [number, number, number]>();
+    for (const n of first.model.graph.nodes) warm.set(n.key, [first.pos[n.id * 3], first.pos[n.id * 3 + 1], first.pos[n.id * 3 + 2]]);
+    const model = buildModel(parsePattern(panel(35)), { tension: 'normal' }, warm);
+    const s = new Solver(model.solverInput);
+    for (let f = 0; f < 400; f++) if (s.step(10) < 0.002) break;
+    const rows = model.graph.instances[0].rows.filter((r) => r.row > 0);
+    const xs = (r: (typeof rows)[number]) => r.nodes.map((id) => s.pos[id * 3]);
+    const ymean = (r: (typeof rows)[number]) => r.nodes.reduce((a, id) => a + s.pos[id * 3 + 1], 0) / r.nodes.length;
+    const { w } = model.sizing;
+    // every row lies below the one before it, and the new rows line up with the old ones' edges
+    for (let i = 1; i < rows.length; i++) expect(ymean(rows[i])).toBeLessThan(ymean(rows[i - 1]));
+    const left = Math.min(...xs(rows[0])), right = Math.max(...xs(rows[0]));
+    for (const r of rows) {
+      expect(Math.abs(Math.min(...xs(r)) - left)).toBeLessThan(w * 0.5);
+      expect(Math.abs(Math.max(...xs(r)) - right)).toBeLessThan(w * 0.5);
+    }
+  });
+});

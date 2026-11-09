@@ -112,16 +112,33 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
 
   // warm start: reuse solved positions for stitches that did not change
   if (warm && warm.size) {
-    let hits = 0;
-    const offs: [number, number, number][] = [];
+    // how far each kept stitch moved from its seed while it was solved
+    const off = new Map<number, [number, number, number]>();
     graph.nodes.forEach((n) => {
       const q = warm.get(n.key);
-      if (q) { hits++; offs.push([q[0] - s.pos[n.id * 3], q[1] - s.pos[n.id * 3 + 1], q[2] - s.pos[n.id * 3 + 2]]); }
+      if (q) off.set(n.id, [q[0] - s.pos[n.id * 3], q[1] - s.pos[n.id * 3 + 1], q[2] - s.pos[n.id * 3 + 2]]);
     });
-    if (hits > graph.nodes.length * 0.3) {
+    if (off.size > graph.nodes.length * 0.3) {
+      // a new stitch (rows 31-35 added to a 30-row panel) moves with what it is worked into, or
+      // with the stitch made before it. Left at its seed, it lands over the solved rows (the solver
+      // recentres the piece, the seed doesn't) and the panel folds there into a flap at the edge.
+      const from = new Map<number, number[]>();
+      for (const e of graph.edges) if (e.kind === 'into' || e.kind === 'yarn') (from.get(e.b) ?? from.set(e.b, []).get(e.b)!).push(e.a);
+      const mean = (ids: number[]): [number, number, number] | undefined => {
+        const o = ids.map((id) => off.get(id)).filter((v) => !!v);
+        return o.length ? [0, 1, 2].map((k) => o.reduce((a, v) => a + v[k], 0) / o.length) as [number, number, number] : undefined;
+      };
+      for (const pi of graph.instances) {
+        const fallback = mean(pi.nodeIds);
+        if (!fallback) continue; // a whole new piece: placed by its own seed
+        for (const id of [...pi.nodeIds].sort((a, b) => a - b)) {
+          if (off.has(id)) continue;
+          off.set(id, mean(from.get(id) ?? []) ?? fallback);
+        }
+      }
       graph.nodes.forEach((n) => {
-        const q = warm.get(n.key);
-        if (q) s.pos.set(q, n.id * 3);
+        const o = off.get(n.id);
+        if (o) for (let k = 0; k < 3; k++) s.pos[n.id * 3 + k] += o[k];
       });
     }
   }
