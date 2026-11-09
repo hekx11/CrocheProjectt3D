@@ -239,10 +239,18 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
         // chains inside a row worked into the one below (ch-2 scallops, ch-3 loops, picots) stay
         // close to it: tie each to the stitch below where it is made, loosely, or nothing holds
         // them and they hang off the edge like spikes
+        // A chain between tall stitches (a granny square's ch-1 between dc groups) sits as high as
+        // the stitches on either side of it, not down on the round below: tied short, it drags the
+        // middle of each side in and the square's sides scallop.
         if (prevRow) ex.stitches.forEach((st, i) => {
           if (st.type !== 'ch' || st.targets.length || row.anchors[i] < 0) return;
           const below = prevRow!.nodes[row.anchors[i]];
-          if (below !== undefined && !nodes[below].virtual) edges.push({ a: below, b: row.nodes[i], kind: 'into', rest: sz.h * 0.7 });
+          let tall = 0;
+          for (const j of [i - 1, i + 1]) {
+            const o = ex.stitches[j];
+            if (o && o.type !== 'ch' && o.type !== 'slst') tall = Math.max(tall, heightFactor(o.type, o.tension, o.loop));
+          }
+          if (below !== undefined && !nodes[below].virtual) edges.push({ a: below, b: row.nodes[i], kind: 'into', rest: sz.h * Math.max(0.7, tall) });
         });
         if (r.join && row.nodes.length > 2) edges.push({ a: row.nodes[row.nodes.length - 1], b: row.nodes[0], kind: 'join', rest: sz.w });
         // closed rounds: also connect last and first so the ring closes (spiral continues anyway)
