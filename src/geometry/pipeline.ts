@@ -151,8 +151,14 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     const L = last.nodes, n = L.length, half = n >> 1;
     for (let j = 0; j < (n % 2 ? n : half); j++) cinch.push({ a: L[j], b: L[(j + half) % n], kind: 'join', rest: graph.nodes[L[j]].w * 0.7 });
   }
-  const all = [...graph.edges, ...cinch, ...s.seamEdges.filter((e) => e.stick === undefined), ...stalks.flatMap((q) => q.brace)];
   const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
+  // a stitch held on the surface by a stick is already sewn there: a second, shorter seam between
+  // the same two stitches fights the stick's clearance (the seam pulls the host out to the stitch,
+  // the stick pushes the stitch back off), and the pair walks outward frame after frame, dragging
+  // the host with it. A bow tie sewn to a doll's chest tipped the whole doll forward this way.
+  const held = new Set(sticks.filter((e) => e.stick! > 0).map((e) => `${e.a}:${e.b}`));
+  const seams = s.seamEdges.filter((e) => e.stick === undefined && !held.has(`${e.a}:${e.b}`) && !held.has(`${e.b}:${e.a}`));
+  const all = [...graph.edges, ...cinch, ...seams, ...stalks.flatMap((q) => q.brace)];
   const stick = new Float32Array(sticks.length * 3);
   sticks.forEach((e, i) => stick.set([e.a, e.b, e.stick!], i * 3));
   const stuffedNode = new Uint8Array(graph.nodes.length);
