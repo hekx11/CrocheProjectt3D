@@ -431,8 +431,10 @@ export class Yarn3D {
       if (ring) {
         // the tail, then the ring itself: a magic ring is the yarn wound round twice and pulled
         // closed; a chain ring is a ring of chains
-        put(onRing(-2.3, rr + rw * 1.3, -rw * 0.35, q));
-        put(onRing(-1.5, rr + rw * 0.45, -rw * 0.2, q));
+        // the starting tail is woven in, so only its last bit shows where it enters the ring: drawn
+        // longer, it stuck straight out of small pieces (the ring's plane is a guess on a flat ear)
+        put(onRing(-1.9, rr + rw * 0.3, 0, q));
+        put(onRing(-1.5, rr + rw * 0.3, -rw * 0.1, q));
         if (ring.magic) {
           const n = MAGIC_PTS * MAGIC_TURNS;
           for (let k = 0; k <= n; k++) {
