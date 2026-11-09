@@ -811,6 +811,9 @@ export function parsePattern(text: string): Pattern {
         p.stuffing = 'firm';
       } else p.stuffing = 'none';
     }
+    // small unstuffed ears worked in the round are pressed flat before they're sewn on, whether or
+    // not the pattern says so: left round they stand up as little open cups
+    if (!p.flatten && p.stuffing === 'none' && p.construction !== 'rows' && /\bears?\b/i.test(p.name) && p.rows.length <= 8) p.flatten = true;
     if (!p.rows.length) diagnostics.push({ severity: 'warning', code: 'row-sequence', line: p.line, src: { from: offsets[p.line], to: offsets[p.line] + rawLines[p.line].length }, message: `${p.name} has no rows.` });
   }
   for (const d of diagnostics) {
