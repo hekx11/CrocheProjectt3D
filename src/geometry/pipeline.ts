@@ -149,7 +149,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     const last = pi.rows[pi.rows.length - 1];
     if (pi.piece.finish !== 'closed' || !last?.closed || last.nodes.length < 3 || last.nodes.length > 12) continue;
     const L = last.nodes, n = L.length, half = n >> 1;
-    for (let j = 0; j < (n % 2 ? n : half); j++) cinch.push({ a: L[j], b: L[(j + half) % n], kind: 'join', rest: graph.nodes[L[j]].w * 0.7 });
+    for (let j = 0; j < (n % 2 ? n : half); j++) cinch.push({ a: L[j], b: L[(j + half) % n], kind: 'join', rest: graph.nodes[L[j]].w * 1.3 });
   }
   const all = [...graph.edges, ...cinch, ...s.seamEdges.filter((e) => e.stick === undefined), ...stalks.flatMap((q) => q.brace)];
   const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
