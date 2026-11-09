@@ -1,0 +1,50 @@
+[
+ {
+  "name": "bear-head",
+  "ms": 2250,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "ball",
+  "ms": 2448,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "coaster",
+  "ms": 2453,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "flower",
+  "ms": 1930,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "uk-ball",
+  "ms": 2051,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "granny-square",
+  "ms": 1991,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "basket",
+  "ms": 2970,
+  "errs": [],
+  "same": []
+ },
+ {
+  "name": "sleepy-cat",
+  "ms": 2167,
+  "errs": [],
+  "same": []
+ }
+]
