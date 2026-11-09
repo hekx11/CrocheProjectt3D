@@ -27,15 +27,17 @@ python3 eval/show.py eval/results/name.json
 |---|---|---|---|---|---|
 | Rules only | 0 | 29 | 2 | 19 | – |
 | Rules + second check (no AI) | 0 | 29 | **0** | 21 | – |
-| + Qwen 3 0.6B int8 | 618 MB | **34** | 0 | 16 | 3.9 s |
-| + Qwen 3 0.6B q4 (q4f16 on WebGPU: 570 MB) | 919 MB | 33 | 0 | 17 | 3.5 s |
-| + Qwen 3 1.7B q4 (q4f16: 1.4 GB) | 2.1 GB | 32 | 0 | 18 | 7.0 s |
-| + Qwen 2.5 0.5B q4 (q4f16: 483 MB) | 786 MB | 30 | 0 | 20 | 2.6 s |
-| + LFM 2.5 350M q4 | 294 MB | 30 | 0 | 20 | 1.0 s |
-| + Gemma 3 270M q4 | 323 MB | 29 | 0 | 21 | 1.8 s |
-| + SmolLM2 360M q4 | 388 MB | 29 | 1 | 20 | 2.2 s |
+| + Qwen 3 0.6B int8 | 618 MB | 34 | 2 | 14 | 3.9 s |
+| + Qwen 3 0.6B q4 (q4f16 on WebGPU: 570 MB) | 919 MB | 33 | 2 | 15 | 3.5 s |
+| + Qwen 3 1.7B q4 (q4f16: 1.4 GB) | 2.1 GB | 32 | 2 | 16 | 7.0 s |
+| + Qwen 2.5 0.5B q4 (q4f16: 483 MB) | 786 MB | 30 | 2 | 18 | 2.6 s |
+| + LFM 2.5 350M q4 | 294 MB | 30 | 2 | 18 | 1.0 s |
+| + Gemma 3 270M q4 | 323 MB | 29 | 2 | 19 | 1.8 s |
+| + SmolLM2 360M q4 | 388 MB | 29 | 3 | 18 | 2.2 s |
 
-(The AI rows include the second check; the two "wrong" lines of the rules reader are flagged by it.)
+In the AI rows the second check only referees the AI's answers. The 2 wrong lines there are the
+rules reader's own (R01, R36), which the AI is never asked about. With the second check also run on
+the rules' readings, those two would be flagged instead.
 
 Without the second check (results on main before PR #18, `results/*.json` without `guard-`),
 every model made things worse: each fixed 1–3 lines but slipped 4–14 wrong answers past the
