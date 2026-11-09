@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { parsePattern } from '../src/parser/parse';
-import { countOf, execute, parseRowText } from '../src/parser/row';
+import { countMade, countOf, execute, parseRowText } from '../src/parser/row';
 
 const fx = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8');
 const counts = (p: ReturnType<typeof parsePattern>, i = 0) =>
@@ -352,5 +352,38 @@ Rnd 4: (ch 30, start in second ch from hook, sc in next 29 ch, slst in next st o
     const r = p.pieces[0].rows[p.pieces[0].rows.length - 1];
     expect(r.skipGeometry).toBe(true);
     expect(r.strands?.map((s) => s.len)).toEqual([30, 30, 31, 31]);
+  });
+});
+
+describe('a point worked into part of a row (a tiara)', () => {
+  const text = `BAND
+Ch 21. Crochet in rows.
+Row 1: start in second ch from hook, sc in next 20 st [20]
+Row 2: slst in this st, sc in next st, hdc + dc in next st, ch 2, start in second ch from hook, sc in this st, dc + hdc in next st, sc in next st, slst in next st. [10]
+Fasten off.`;
+  const p = parsePattern(text);
+  const row = p.pieces[0].rows[1];
+  const ex = execute(row.ops, 20, false);
+
+  it('reads "hdc + dc in next st" as both stitches in one stitch', () => {
+    expect(ex.stitches.filter((s) => !s.isChain && s.onChain === undefined).map((s) => `${s.type}${s.targets[0]}`)).toEqual(
+      ['slst0', 'sc1', 'hdc2', 'dc2', 'dc3', 'hdc3', 'sc4', 'slst5']);
+    expect(ex.leftover).toBe(14);
+  });
+
+  it('works the sc after "ch 2, start in second ch from hook" back into the chain', () => {
+    expect(ex.stitches.map((s) => s.type).join(' ')).toBe('slst sc hdc dc ch ch sc dc hdc sc slst');
+    expect(ex.stitches[6].onChain).toBe(4);
+  });
+
+  it('accepts the stated count, which counts the chain and the stitch in it', () => {
+    expect(p.diagnostics.filter((d) => d.severity !== 'info')).toEqual([]);
+    expect(row.status).toBe('assumption');
+    expect(countMade(ex)).toBe(10);
+  });
+
+  it('still reports a count that no way of counting gives', () => {
+    const bad = parsePattern(text.replace('[10]', '[12]'));
+    expect(bad.diagnostics.some((d) => d.code === 'count-mismatch' && /I count 7 stitches, the pattern says 12 \(I don't count chains, stitches worked into them or the slip stitch at the start\)/.test(d.message))).toBe(true);
   });
 });

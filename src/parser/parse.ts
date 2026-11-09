@@ -4,7 +4,8 @@ import type {
 import { COLORS, DEFAULT_YARN_COLOR, FIBERS, WEIGHT_NAMES } from '../model/dictionary';
 import { wordsVsReading } from './consistency';
 import { detectTerms, normalize } from './normalize';
-import { chainCountsAs, countOf, execute, parseRowText } from './row';
+import { chainCountsAs, countMade, countOf, execute, parseRowText } from './row';
+import type { ExecResult } from './row';
 
 // "Rnd 5:", "5.", "Rnds 6-10:", "Round 10 - Round 14:", "R4-6 sc around"
 const LABEL_RE = /^\s*(?:(rnds?|rounds?|rows?|r)\.?\s*)?(\d+)(?:\s*(?:-|–|—|to)\s*(?:(?:rnds?|rounds?|rows?|r)\.?\s*)?(\d+))?\s*[:.)](?!\d)\s*|^\s*(rnds?|rounds?|rows?|r)\.?\s*(\d+)(?:\s*(?:-|–|—|to)\s*(?:(?:rnds?|rounds?|rows?|r)\.?\s*)?(\d+))?\s+(?!(?:and|or|&)\b)/i;
@@ -214,6 +215,18 @@ const HARMLESS = new Set(['st', 'times', 'x', 'around', 'across', 'evenly', 'spa
 function meaningfulIgnored(ignored: string[]): string[] {
   const words = ignored.join(' ').split(/\s+/).filter((w) => /[a-z0-9]/.test(w));
   return words.some((w) => !HARMLESS.has(w.replace(/[^a-z0-9-]/g, ''))) ? words : [];
+}
+
+/** What the stitch count leaves out on this row, so a mismatch can be checked by hand. */
+function notCounted(ex: ExecResult): string {
+  const first = ex.stitches.findIndex((s) => !s.isChain && s.type !== 'slst' && s.onChain === undefined);
+  const parts = [
+    ex.stitches.some((s) => s.isChain) && 'chains',
+    ex.stitches.some((s) => s.onChain !== undefined) && 'stitches worked into them',
+    first > 0 && ex.stitches.slice(0, first).some((s) => s.type === 'slst') && 'the slip stitch at the start',
+  ].filter(Boolean) as string[];
+  if (!parts.length) return '';
+  return ` (I don't count ${parts.length > 1 ? parts.slice(0, -1).join(', ') + ' or ' + parts[parts.length - 1] : parts[0]})`;
 }
 
 function sentences(line: string): { text: string; from: number }[] {
@@ -446,9 +459,13 @@ export function parsePattern(text: string): Pattern {
             readings = hits.map((h) => h.a);
             if (hits.length === 1) notesHere.push(`read as "${hits[0].a}", the only reading that gives ${want.n}`);
             else pickNeeded = true;
-          } else if (want.unit === 'st' && execute(parsed.ops, prevCount, ringMode, prevTypes).stitches.length === want.n) {
-            notesHere.push(`the stated count ${want.n} includes the chains`);
-            parsed = { ...parsed, expectedCount: { n: countFor(parsed), unit: 'st' } };
+          } else if (want.unit === 'st') {
+            const ex = execute(parsed.ops, prevCount, ringMode, prevTypes);
+            const all = ex.stitches.length === want.n;
+            if (all || countMade(ex) === want.n) {
+              notesHere.push(all ? `the stated count ${want.n} includes the chains` : `the stated count ${want.n} includes the chains and the stitches worked back into them (the chain skipped next to the hook is not a stitch)`);
+              parsed = { ...parsed, expectedCount: { n: countFor(parsed), unit: 'st' } };
+            }
           }
         }
       }
@@ -523,7 +540,7 @@ export function parsePattern(text: string): Pattern {
             diagnostics.push({ severity: 'warning', code: 'ambiguous', line: li, src: lineSrc, readings, message: `This can be read ${readings.length} ways that all give ${parsed.expectedCount?.n}. Showing the first; pick the one you mean.` });
           } else if (parsed.expectedCount && parsed.expectedCount.n !== computed) {
             status = 'ambiguous';
-            diagnostics.push({ severity: 'warning', code: 'count-mismatch', line: li, src: lineSrc, message: `I count ${computed} ${parsed.expectedCount.unit === 'loops' ? 'loops' : 'stitches'}, the pattern says ${parsed.expectedCount.n}.${ex.leftover ? ` ${ex.leftover} stitch(es) of the previous row left unworked.` : ''}${ex.overflow ? ` Ran out of stitches ${ex.overflow}×.` : ''}` });
+            diagnostics.push({ severity: 'warning', code: 'count-mismatch', line: li, src: lineSrc, message: `I count ${computed} ${parsed.expectedCount.unit === 'loops' ? 'loops' : 'stitches'}, the pattern says ${parsed.expectedCount.n}${parsed.expectedCount.unit === 'loops' ? '' : notCounted(ex)}.${ex.leftover ? ` ${ex.leftover} stitch(es) of the previous row left unworked.` : ''}${ex.overflow ? ` Ran out of stitches ${ex.overflow}×.` : ''}` });
           } else {
             const notes = [...notesHere, ...parsed.assumptions];
             const skipped = meaningfulIgnored(parsed.ignored);
