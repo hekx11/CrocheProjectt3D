@@ -185,47 +185,67 @@ export class Solver {
     for (const r of rings) for (const id of r) { cx += p[id * 3]; cy += p[id * 3 + 1]; cz += p[id * 3 + 2]; m++; }
     if (!m) return;
     cx /= m; cy /= m; cz /= m;
-    rings.forEach((r, ri) => {
-      if (r.length < 6) return;
-      const vs = r.map((id) => {
-        let dx = p[id * 3] - cx, dy = p[id * 3 + 1] - cy, dz = p[id * 3 + 2] - cz;
-        const d = dx * n[0] + dy * n[1] + dz * n[2];
-        dx -= d * n[0]; dy -= d * n[1]; dz -= d * n[2];
-        return [dx, dy, dz, Math.hypot(dx, dy, dz) || 1e-6];
-      });
-      // at least most of its own width: stitches fanned out of one space (a granny square's corner
-      // groups) otherwise bunch up where they are worked and the round folds into spikes
-      const R = Math.max(vs.reduce((a, v) => a + v[3], 0) / vs.length, (ringR?.[ri] ?? 0) * 0.9);
-      const cs = corners?.[ri];
-      if (cs && cs.length >= 3) { this.toPolygon(r, cs, vs, R, [cx, cy, cz], n); return; }
-      r.forEach((id, j) => {
-        const [dx, dy, dz, L] = vs[j];
-        const k = ((R - L) / L) * 0.25;
-        p[id * 3] += dx * k; p[id * 3 + 1] += dy * k; p[id * 3 + 2] += dz * k;
-      });
-    });
-  }
-
-  /** Pull a round toward a regular polygon with its corners at the given stitches (a granny square). */
-  private toPolygon(r: number[], cs: number[], vs: number[][], R: number, c: number[], n: [number, number, number]) {
-    const p = this.pos;
-    const k = cs.length;
     // plane basis
     const a = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
     const dot = a[0] * n[0] + a[1] * n[1] + a[2] * n[2];
     let u = [a[0] - dot * n[0], a[1] - dot * n[1], a[2] - dot * n[2]];
     const ul = Math.hypot(u[0], u[1], u[2]); u = u.map((x) => x / ul);
     const w = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
-    const ang = (j: number) => Math.atan2(vs[j][0] * w[0] + vs[j][1] * w[1] + vs[j][2] * w[2], vs[j][0] * u[0] + vs[j][1] * u[1] + vs[j][2] * u[2]);
-    // corners evenly spaced, turned to where they are now
+    const all = rings.map((r) => r.map((id) => {
+      let dx = p[id * 3] - cx, dy = p[id * 3 + 1] - cy, dz = p[id * 3 + 2] - cz;
+      const d = dx * n[0] + dy * n[1] + dz * n[2];
+      dx -= d * n[0]; dy -= d * n[1]; dz -= d * n[2];
+      return [dx, dy, dz, Math.hypot(dx, dy, dz) || 1e-6];
+    }));
+    const angOf = (vs: number[][]) => (j: number) => Math.atan2(vs[j][0] * w[0] + vs[j][1] * w[1] + vs[j][2] * w[2], vs[j][0] * u[0] + vs[j][1] * u[1] + vs[j][2] * u[2]);
+    // a motif's corners stack straight out from the middle, round on round (each corner group is
+    // worked into the corner space below it): one turn and one winding for every round, or the
+    // rounds twist against each other like a pinwheel
+    let sx = 0, sy = 0, wd = 0, k = 0;
+    rings.forEach((r, ri) => {
+      const cs = corners?.[ri];
+      if (!cs || cs.length < 3 || r.length < 6) return;
+      k = cs.length;
+      const ang = angOf(all[ri]);
+      const dir = this.windingOf(cs, ang);
+      wd += dir * r.length;
+      cs.forEach((j, i) => { const d = (ang(j) - (dir || 1) * i * (2 * Math.PI / k)) * k; sx += Math.cos(d) * r.length; sy += Math.sin(d) * r.length; });
+    });
+    // (k-fold symmetric: the turn is only known modulo one corner step, so average k × angle)
+    const phi0 = Math.atan2(sy, sx) / (k || 1);
+    const dir = Math.sign(wd) || 1;
+    rings.forEach((r, ri) => {
+      if (r.length < 6) return;
+      const vs = all[ri];
+      // at least most of its own width: stitches fanned out of one space (a granny square's corner
+      // groups) otherwise bunch up where they are worked and the round folds into spikes
+      const R = Math.max(vs.reduce((acc, v) => acc + v[3], 0) / vs.length, (ringR?.[ri] ?? 0) * 0.9);
+      const cs = corners?.[ri];
+      if (cs && cs.length >= 3) { this.toPolygon(r, cs, vs, R, [cx, cy, cz], u, w, phi0, dir, angOf(vs)); return; }
+      r.forEach((id, j) => {
+        const [dx, dy, dz, L] = vs[j];
+        const f = ((R - L) / L) * 0.25;
+        p[id * 3] += dx * f; p[id * 3 + 1] += dy * f; p[id * 3 + 2] += dz * f;
+      });
+    });
+  }
+
+  /** Pull a round toward a regular polygon with its corners at the given stitches (a granny square). */
+  private toPolygon(r: number[], cs: number[], vs: number[][], R: number, c: number[], u: number[], w: number[], phi0: number, dir: number, ang: (j: number) => number) {
+    const p = this.pos;
+    const k = cs.length;
     const step = (2 * Math.PI) / k;
-    const dir = this.windingOf(cs, ang) || 1;
-    let sx = 0, sy = 0;
-    cs.forEach((j, i) => { const d = ang(j) - dir * i * step; sx += Math.cos(d); sy += Math.sin(d); });
-    const phi0 = Math.atan2(sy, sx);
+    // which of the k turns of the common phase this round's first corner sits nearest
+    let best = 0, bd = Infinity;
+    for (let q = 0; q < k; q++) {
+      let d = ang(cs[0]) - (phi0 + q * step);
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      if (Math.abs(d) < bd) { bd = Math.abs(d); best = q; }
+    }
+    const start = phi0 + best * step;
     // same perimeter as the circle of radius R: circumradius of the polygon
     const Rc = (Math.PI * R) / (k * Math.sin(Math.PI / k));
-    const cornerPos = cs.map((_, i) => { const t = phi0 + dir * i * step; return [Math.cos(t) * Rc, Math.sin(t) * Rc]; });
+    const cornerPos = cs.map((_, i) => { const t = start + dir * i * step; return [Math.cos(t) * Rc, Math.sin(t) * Rc]; });
     const m = r.length;
     for (let i = 0; i < k; i++) {
       const j0 = cs[i], j1 = cs[(i + 1) % k];

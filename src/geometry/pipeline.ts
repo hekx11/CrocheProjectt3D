@@ -11,6 +11,8 @@ export interface Model {
   graph: StitchGraph;
   tris: Uint32Array;
   triPiece: Uint16Array;
+  /** Triangles under a chain space (a granny square's holes): kept for normals, not drawn. */
+  holes: Uint8Array;
   markers: MarkerAnchor[];
   solverInput: SolverInput;
 }
@@ -52,12 +54,33 @@ function motifCorners(rows: { corners?: number[]; anchors: number[]; nodes: numb
   return out;
 }
 
+/** A flat piece worked in rounds (a coaster, a granny square): its closed rounds, for rounding out
+ *  (or squaring up), without the slip stitches each round starts with to move across the round
+ *  below: those lie on the round below, not on this one. */
+function roundsOf(graph: StitchGraph, pi: StitchGraph['instances'][number]): { rings?: number[][]; ringCorners?: (number[] | undefined)[]; ringR?: number[] } {
+  if (!pi.flat || pi.piece.flatten || pi.piece.construction === 'rows' || pi.stuffed !== 0 || pi.piece.base) return {};
+  const rows = pi.rows.filter((r) => r.closed && r.row > 0);
+  const nodes = graph.nodes;
+  const lead = rows.map((r) => {
+    let k = 0;
+    while (k < r.nodes.length - 1 && nodes[r.nodes[k]].type === 'slst') k++;
+    return k === r.nodes.length - 1 ? 0 : k;
+  });
+  const rings = rows.map((r, i) => r.nodes.slice(lead[i]));
+  const cs = motifCorners(rows)?.map((c, i) => c?.map((j) => j - lead[i]).filter((j) => j >= 0));
+  return {
+    rings,
+    ringCorners: cs,
+    ringR: rings.map((r) => r.reduce((a, id) => a + nodes[id].w, 0) / (2 * Math.PI)),
+  };
+}
+
 /** Parse result → sized stitch graph → seeded positions → solver input. */
 export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<string, [number, number, number]>): Model {
   const sizing = computeSizing(pattern, user);
   const graph = buildGraph(pattern, sizing);
   const s = seed(graph, pattern, sizing.w);
-  const { tris, triPiece } = triangulate(graph);
+  const { tris, triPiece, holes } = triangulate(graph);
 
   // warm start: reuse solved positions for stitches that did not change
   if (warm && warm.size) {
@@ -128,9 +151,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       stuffed: pi.stuffed,
       // a flat circle worked in rounds (a coaster): every closed round, for rounding out
       brim: brimOf(pi),
-      rings: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes) : undefined,
-      ringCorners: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? motifCorners(pi.rows.filter((r) => r.closed && r.row > 0)) : undefined,
-      ringR: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes.reduce((a, id) => a + graph.nodes[id].w, 0) / (2 * Math.PI)) : undefined,
+      ...roundsOf(graph, pi),
       // (and a strip wrapped round something, a veil or a collar, hangs from where it is tied)
       // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
       drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : wrapped(pi) ? 0.012 : 0,
@@ -151,5 +172,5 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     give,
     stick,
   };
-  return { pattern, sizing, graph, tris, triPiece, markers: s.markers, solverInput };
+  return { pattern, sizing, graph, tris, triPiece, holes, markers: s.markers, solverInput };
 }

@@ -160,7 +160,7 @@ function fibreMask(look: YarnLook): THREE.DataTexture {
   return tex;
 }
 
-interface Inst { node: number; parent: number; prev: number; next: number }
+interface Inst { node: number; parent: number; prev: number; next: number; chain?: boolean }
 
 export class Yarn3D {
   readonly group = new THREE.Group();
@@ -185,7 +185,9 @@ export class Yarn3D {
           const band = BAND_OF[n.type] ?? 0;
           const prev = j > 0 ? ids[j - 1] : row.closed ? ids[ids.length - 1] : id;
           const next = j < ids.length - 1 ? ids[j + 1] : row.closed ? ids[0] : id;
-          insts[band].push({ node: id, parent: parent[id], prev, next });
+          // a chain lies along the yarn path (a little oval), not standing up from the row below
+          const chain = n.type === 'ch';
+          insts[band].push({ node: id, parent: chain ? -1 : parent[id], prev, next, chain });
         });
       }
     }
@@ -270,9 +272,15 @@ export class Yarn3D {
         Y.crossVectors(Z, X);
         if (Y.dot(up) < 0) { X.negate(); Y.negate(); }
         if (!(h > 1e-6)) h = w;
+        if (it.chain) h = w * 0.55;
         // centre between this stitch's top and the stitch below it
         if (it.parent >= 0) C.addScaledVector(up, -0.5);
-        m.makeBasis(X.multiplyScalar(w), Y.multiplyScalar(h / f), Z.multiplyScalar(w));
+        // a stitch spans from where it is worked to its top: stitches fanned out of one space (a
+        // granny square's corner, a shell) lean out along the fan instead of standing square to
+        // the row and overlapping their neighbours
+        const lean = it.parent >= 0 && h > 1e-6 && Math.abs(up.dot(X)) < h * 0.85;
+        if (lean) { up.addScaledVector(Z, -up.dot(Z)); if (up.dot(Y) < 0) up.negate(); }
+        m.makeBasis(X.multiplyScalar(w), lean ? up.multiplyScalar(1 / f) : Y.multiplyScalar(h / f), Z.multiplyScalar(w));
         m.setPosition(C);
         band.mesh.setMatrixAt(i, m);
         for (const s of band.shells) s.setMatrixAt(i, m);

@@ -177,6 +177,30 @@ describe('motifs and cups worked in joined rounds', () => {
     expect(corner / mid).toBeGreaterThan(1.2);
   });
 
+  it('a granny square\'s corners stack straight out from the middle, round on round (no pinwheel twist)', () => {
+    const { model, pos } = solve(granny);
+    const pi = model.graph.instances[0];
+    const rc = model.solverInput.instances[0].ringCorners!;
+    const rings = model.solverInput.instances[0].rings!;
+    const c = [0, 2].map((k) => pi.nodeIds.reduce((a, id) => a + pos[id * 3 + k], 0) / pi.nodeIds.length);
+    const ang = (id: number) => Math.atan2(pos[id * 3 + 2] - c[1], pos[id * 3] - c[0]);
+    const corners = (ri: number) => rc[ri]!.map((j) => ang(rings[ri][j])).sort((a, b) => a - b);
+    const outer = corners(rings.length - 1);
+    for (let ri = 0; ri < rings.length - 1; ri++) {
+      for (const a of corners(ri)) {
+        const d = Math.min(...outer.map((b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))));
+        expect(d).toBeLessThan(0.3); // within ~17°: each corner sits under the corner above it
+      }
+    }
+  });
+
+  it('leaves the chain spaces of a granny square open, but not the stitches of a solid circle', () => {
+    const g = buildModel(parsePattern(granny), { tension: 'normal' });
+    expect(g.holes.some((h) => h)).toBe(true);
+    const solid = buildModel(parsePattern('Rnd 1: 6 sc in a magic ring [6]\nRnd 2: inc in all 6 st [12]\nRnd 3: (sc, inc) repeat 6 times [18]'), { tension: 'normal' });
+    expect(solid.holes.some((h) => h)).toBe(false);
+  });
+
   it('a basket (rounds that stop increasing) stands up instead of lying flat', () => {
     const basket = 'Rnd 1: Ch 3 (does not count as a st), 12 dc in 3rd ch from hook, sl st to first dc to join. (12)\nRnd 2: Ch 2, 2 dc in each st around, sl st to join. (24)\nRnd 3: Ch 1, sc in the back loop of each st around, sl st to join. (24)\nRnds 4-12: Ch 1, sc in each st around, sl st to join. (24)';
     const { ext, model } = solve(basket);

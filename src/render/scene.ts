@@ -376,6 +376,9 @@ export class CrochetView {
     const Nn = (this.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute);
     const pa = P.array as Float32Array, na = Nn.array as Float32Array;
     tessellate(pos, this.nrm, tris, pa, na);
+    // chain spaces stay open: their triangles collapse to a point
+    const holes = this.model.holes, per = pa.length / (tris.length / 3);
+    for (let t = 0; t < holes.length; t++) if (holes[t]) for (let q = t * per + 3; q < (t + 1) * per; q++) pa[q] = pa[t * per + (q % 3)];
     P.needsUpdate = true;
     Nn.needsUpdate = true;
     this.mesh.geometry.computeBoundingSphere();
