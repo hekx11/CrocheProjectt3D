@@ -513,6 +513,9 @@ export class CrochetView {
         this.markers.add(tube);
       });
     }
+    // with real yarn drawn the stitches stand proud of the surface: things sewn or set on top of
+    // them (eyes, a nose, embroidered lines, blush) sit on the yarn, not under it
+    const lift = YARN3D ? this.model.sizing.w * 0.4 : 0;
     for (const m of this.model.markers) {
       const p = new THREE.Vector3(
         (pos[m.a * 3] + pos[m.b * 3]) / 2, (pos[m.a * 3 + 1] + pos[m.b * 3 + 1]) / 2, (pos[m.a * 3 + 2] + pos[m.b * 3 + 2]) / 2,
@@ -525,7 +528,7 @@ export class CrochetView {
           this.markMat('eye', () => new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05 })),
         );
         eye.scale.set(1, 1, 0.6);
-        eye.position.copy(p).addScaledVector(n, r * 0.25);
+        eye.position.copy(p).addScaledVector(n, r * 0.25 + lift);
         eye.lookAt(p.clone().addScaledVector(n, 10));
         this.markers.add(eye);
       } else if (m.what === 'nose') {
@@ -535,7 +538,7 @@ export class CrochetView {
         if (m.color) c.multiplyScalar(0.93);
         const nose = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), this.markMat(`nose:${m.color}`, () => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 })));
         nose.scale.set(1.25, 0.9, 0.7);
-        nose.position.copy(p).addScaledVector(n, r * 0.45);
+        nose.position.copy(p).addScaledVector(n, r * 0.45 + lift);
         nose.lookAt(p.clone().addScaledVector(n, 10));
         this.markers.add(nose);
       } else if (m.what === 'cheek') {
@@ -546,7 +549,7 @@ export class CrochetView {
           this.markMat(`cheek:${m.color}`, () => new THREE.MeshStandardMaterial({ color: new THREE.Color(m.color ?? '#f2a7c3'), roughness: 1, transparent: true, opacity: 0.55, depthWrite: false })),
         );
         cheek.scale.set(1.3, 0.8, 1);
-        cheek.position.copy(p).addScaledVector(n, 1.0);
+        cheek.position.copy(p).addScaledVector(n, 1.0 + lift);
         cheek.lookAt(p.clone().addScaledVector(n, 10));
         this.markers.add(cheek);
       } else {
@@ -554,7 +557,7 @@ export class CrochetView {
           new THREE.CapsuleGeometry(1.2, (this.model.sizing.w * 0.9), 4, 8),
           this.markMat('line', () => new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })),
         );
-        brow.position.copy(p).addScaledVector(n, 0.8);
+        brow.position.copy(p).addScaledVector(n, 0.8 + lift);
         // lie along the surface, roughly horizontal
         const tangent = new THREE.Vector3().crossVectors(n, new THREE.Vector3(0, 1, 0)).normalize();
         brow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent.lengthSq() ? tangent : new THREE.Vector3(1, 0, 0));

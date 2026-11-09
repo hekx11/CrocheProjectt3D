@@ -69,7 +69,10 @@ const END: P3[] = [[0.5, 0.94, 0], [0.75, 1.0, -0.25], [0.9, 0.95, -0.45]];
 const HOLE = 0.38;
 const MAGIC_TURNS = 2, MAGIC_PTS = 16;
 /** Points per stitch width along the strand between control points, and around the strand. */
-const SUB = 4, RAD = 8;
+const DETAIL: [sub: number, rad: number, shells: number][] = [[4, 8, 2], [3, 8, 1], [3, 6, 0], [2, 6, 0], [2, 5, 0], [1, 6, 0]];
+/** Vertices the strand (with its fuzz shells) may use: a big amigurumi has thousands of stitches,
+ *  and drawing each as finely as a coaster's would stall a phone. */
+const VERTEX_BUDGET = 1_200_000;
 
 function rng(seed: number) {
   let s = seed >>> 0 || 1;
@@ -177,9 +180,13 @@ export class Yarn3D {
   private sampleNode = new Int32Array(0);
   private nSamples = 0;
   private radius = 1;
+  private sub = 4;
+  private rad = 8;
   private after = new Int32Array(0);
   private pending: (() => void) | null = null;
   private lastRun = 0;
+  /** How long the last rebuild took: a big piece is rebuilt less often while the solver runs. */
+  private cost = 0;
   private timer = 0;
   /** Called after a deferred update has moved the strand. */
   onChange?: () => void;
@@ -229,9 +236,19 @@ export class Yarn3D {
       for (let k = 0; k < ringPts; k++) ctrlNode.push(ring!.centre);
       for (const s of steps) for (let k = 0; k < TEMPLATE[s.kind].length; k++) ctrlNode.push(s.node);
       for (let k = 0; k < END.length; k++) ctrlNode.push(steps[steps.length - 1].node);
-      this.strands.push({ steps, ring, ctrl, v0: nSamples * (RAD + 1), s0: nSamples });
+      this.strands.push({ steps, ring, ctrl, v0: 0, s0: 0 });
       nCtrl += ctrl;
-      nSamples += (ctrl - 1) * SUB + 1;
+    }
+    // as fine as the budget allows: points along the strand, around it, and fuzz shells
+    const segs = nCtrl - this.strands.length;
+    const wantShells = look.shells.count > 0 ? Math.min(2, look.shells.count) : 0;
+    const fits = ([sub, rad, sh]: [number, number, number]) => (segs * sub + this.strands.length) * (rad + 1) * (1 + Math.min(sh, wantShells)) <= VERTEX_BUDGET;
+    const [SUB, RAD, maxShells] = DETAIL.find(fits) ?? DETAIL[DETAIL.length - 1];
+    this.sub = SUB; this.rad = RAD;
+    for (const s of this.strands) {
+      s.s0 = nSamples;
+      s.v0 = nSamples * (RAD + 1);
+      nSamples += (s.ctrl - 1) * SUB + 1;
     }
     this.ctrl = new Float32Array(nCtrl * 3);
     this.samples = new Float32Array(nSamples * 3);
@@ -268,7 +285,7 @@ export class Yarn3D {
     };
 
     // yarn radius in sc widths: fat next to the stitch (tight amigurumi); plush yarn fatter
-    this.radius = model.sizing.w * (look.plies > 0 ? 0.16 + look.legRadius * 0.2 : 0.21 + look.legRadius * 0.2);
+    this.radius = model.sizing.w * (look.plies > 0 ? 0.19 + look.legRadius * 0.2 : 0.23 + look.legRadius * 0.2);
     const nmap = strandNormalMap(look);
     const fmask = look.shells.count > 0 ? fibreMask(look) : null;
     const mat = new THREE.MeshPhysicalMaterial({
@@ -288,7 +305,7 @@ export class Yarn3D {
     };
     add(new THREE.Mesh(geometry(), mat), 0);
     if (fmask) {
-      const count = Math.min(2, look.shells.count);
+      const count = Math.min(maxShells, look.shells.count);
       for (let k = 0; k < count; k++) {
         const f = (k + 1) / (count + 1);
         const reach = (look.shells.kind === 'halo' ? 2.4 : look.shells.kind === 'pile' ? 0.5 : 1.0) * look.shells.length / 0.1;
@@ -315,7 +332,7 @@ export class Yarn3D {
     for (let i = 0; i < this.nSamples; i++) {
       const n = this.sampleNode[i];
       if (n !== last) { const c = color(n); r = c.r; gg = c.g; b = c.b; last = n; }
-      for (let j = 0, o = i * (RAD + 1) * 3; j <= RAD; j++, o += 3) { a[o] = r; a[o + 1] = gg; a[o + 2] = b; }
+      for (let j = 0, o = i * (this.rad + 1) * 3; j <= this.rad; j++, o += 3) { a[o] = r; a[o + 1] = gg; a[o + 2] = b; }
     }
     attr.needsUpdate = true;
   }
@@ -326,7 +343,7 @@ export class Yarn3D {
     // second while it settles, and always the last shape
     const pos2 = pos.slice(), nrm2 = nrm.slice();
     this.pending = () => this.update0(pos2, nrm2, nodeW);
-    const wait = this.lastRun + 250 - performance.now();
+    const wait = this.lastRun + Math.max(250, this.cost * 4) - performance.now();
     if (wait <= 0) this.flush();
     else if (!this.timer) this.timer = setTimeout(() => { this.timer = 0; this.flush(); this.onChange?.(); }, wait) as unknown as number;
   }
@@ -334,8 +351,10 @@ export class Yarn3D {
     const run = this.pending;
     this.pending = null;
     if (!run) return;
+    const t0 = performance.now();
     run();
     this.lastRun = performance.now();
+    this.cost = this.lastRun - t0;
   }
   private update0(pos: Float32Array, nrm: Float32Array, nodeW: (id: number) => number) {
     const ctrl = this.ctrl;
@@ -464,9 +483,9 @@ export class Yarn3D {
       const n = s.ctrl;
       for (let i = 0; i < n - 1; i++) {
         const i0 = c0 + Math.max(0, i - 1), i1 = c0 + i, i2 = c0 + i + 1, i3 = c0 + Math.min(n - 1, i + 2);
-        for (let k = 0; k < SUB; k++) catmull(c, i0, i1, i2, i3, k / SUB, S, (s.s0 + i * SUB + k) * 3);
+        for (let k = 0; k < this.sub; k++) catmull(c, i0, i1, i2, i3, k / this.sub, S, (s.s0 + i * this.sub + k) * 3);
       }
-      const last = (s.s0 + (n - 1) * SUB) * 3;
+      const last = (s.s0 + (n - 1) * this.sub) * 3;
       S[last] = c[(c0 + n - 1) * 3]; S[last + 1] = c[(c0 + n - 1) * 3 + 1]; S[last + 2] = c[(c0 + n - 1) * 3 + 2];
       c0 += n;
     }
@@ -479,7 +498,7 @@ export class Yarn3D {
     const uv = uvAttr.array as Float32Array;
     const T = V(), N = V(), B = V(), D = V();
     for (const s of this.strands) {
-      const n = (s.ctrl - 1) * SUB + 1;
+      const n = (s.ctrl - 1) * this.sub + 1;
       let along = 0;
       for (let i = 0; i < n; i++) {
         const o = (s.s0 + i) * 3;
@@ -495,15 +514,15 @@ export class Yarn3D {
         B.crossVectors(T, N);
         if (i > 0) along += Math.hypot(S[o] - S[o - 3], S[o + 1] - S[o - 2], S[o + 2] - S[o - 1]);
         const u = along / (2 * this.radius);
-        for (let j = 0; j <= RAD; j++) {
-          const ang = (j / RAD) * Math.PI * 2;
+        for (let j = 0; j <= this.rad; j++) {
+          const ang = (j / this.rad) * Math.PI * 2;
           D.copy(N).multiplyScalar(Math.cos(ang)).addScaledVector(B, Math.sin(ang));
-          const v = s.v0 + i * (RAD + 1) + j;
+          const v = s.v0 + i * (this.rad + 1) + j;
           for (const out of outs) {
             out.p[v * 3] = S[o] + D.x * out.r; out.p[v * 3 + 1] = S[o + 1] + D.y * out.r; out.p[v * 3 + 2] = S[o + 2] + D.z * out.r;
             out.n[v * 3] = D.x; out.n[v * 3 + 1] = D.y; out.n[v * 3 + 2] = D.z;
           }
-          uv[v * 2] = u; uv[v * 2 + 1] = j / RAD;
+          uv[v * 2] = u; uv[v * 2 + 1] = j / this.rad;
         }
       }
     }
