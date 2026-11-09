@@ -489,9 +489,18 @@ function attach(
   const topCentre = seam.hint === 'top' && count === 1 && seam.rowA === undefined;
   const topRows = up ? host.rows.slice(-2) : host.rows.filter((r) => r.row > 0).slice(0, 2);
   const near = topCentre ? topRows.flatMap((r) => r.nodes) : hostIds.filter((id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < TAU / 10);
-  let target = centroid(pos, near.length ? near : hostIds);
+  // a flattened piece sewn on over several rounds (ears "between round 8 and 17"): its flat edge
+  // runs along the host from the first of those rounds to the last, one stitch per round
+  const hangs2 = pi.piece.flatten && pi.stuffed === 0 && seam.hint === 'side' && pi.rows.length >= 6;
+  const meridian = pi.piece.flatten && !hangs2 && !topCentre && seam.rowA !== undefined && (rb ?? ra!) - ra! >= 3
+    ? region.map((r) => r.nodes.filter((id) => !g.nodes[id].virtual).reduce((b, id) => Math.abs(Math.atan2(Math.sin(angle[id] - th), Math.cos(angle[id] - th))) < Math.abs(Math.atan2(Math.sin(angle[b] - th), Math.cos(angle[b] - th))) ? id : b, r.nodes[0]))
+    : null;
+  let target = centroid(pos, meridian ?? (near.length ? near : hostIds));
   const hostC = centroid(pos, host.nodeIds);
-  let normal = topCentre ? [0, 1, 0] as V : norm([target[0] - hostC[0], 0, target[2] - hostC[2]]);
+  // out from the host's axis; something sewn over given rounds with no other hint (ears "between
+  // round 8 and 17" of a head) sticks out square to the surface there: up and out near the top
+  const hostAxisC: V = [hostC[0], seam.hint === 'default' && seam.rowA !== undefined ? hostC[1] : target[1], hostC[2]];
+  let normal = topCentre ? [0, 1, 0] as V : norm(sub(target, hostAxisC));
   // "sew the hat to the top side of the head": on top, tipped over to one side (the doll's left)
   if (topCentre && /\btop side\b|\bto (?:one|the) side\b|\btilt|\bat an angle\b/i.test(seam.text)) {
     const ordered = up ? [...hostRows].reverse() : hostRows;
@@ -536,6 +545,26 @@ function attach(
   // Fold each ring flat along x, keeping its length: a ring of radius R becomes two layers πR wide
   // (squashing z alone would shorten every ring and the extra yarn then crumples).
   if (pi.piece.flatten) {
+    // pressed flat, a cup is a triangle as long as its rounds are tall, not a disc: rounds that
+    // increase (6, 12, 18 …) sit one stitch height apart along it, less only what the widening
+    // takes (seeded round, a stuffed piece's increase rounds would lie almost flat on each other)
+    const rows = pi.rows.filter((r) => r.row > 0 && r.nodes.length);
+    if (rows.length >= 3) {
+      const yOf = (r: { nodes: number[] }) => r.nodes.reduce((a, id) => a + pos[id * 3 + 1], 0) / r.nodes.length;
+      const widthOf = (r: { nodes: number[] }) => r.nodes.reduce((a, id) => a + (g.nodes[id].w || w), 0) / 2;
+      const sgn = Math.sign(yOf(rows[0]) - yOf(rows[rows.length - 1])) || 1;
+      let y = yOf(rows[rows.length - 1]);
+      const at = new Map<number, number>();
+      for (let k = rows.length - 1; k >= 0; k--) {
+        if (k < rows.length - 1) {
+          const h = g.nodes[rows[k + 1].nodes[0]].h || w;
+          const dw = (widthOf(rows[k + 1]) - widthOf(rows[k])) / 2;
+          y += sgn * Math.sqrt(Math.max(h * h - dw * dw, h * h * 0.25));
+        }
+        at.set(k, y);
+      }
+      rows.forEach((r, k) => { const y0 = yOf(r), y1 = at.get(k)!; for (const id of r.nodes) pos[id * 3 + 1] += y1 - y0; });
+    }
     for (const id of pi.nodeIds) {
       const x = pos[id * 3], z = pos[id * 3 + 2];
       const R = Math.hypot(x, z), th = Math.atan2(z, x);
@@ -581,6 +610,24 @@ function attach(
       if (along < lift) pos.set(add(pv, mul(out, lift - along)), id * 3);
       if (!edge.includes(id)) seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: Math.max(lift, along) });
     }
+  }
+  if (meridian && meridian.length >= 2) {
+    const m0 = get(pos, meridian[0]), axis = sub(get(pos, meridian[meridian.length - 1]), m0);
+    // the edge lies across the meridian once placed: spread it along the meridian by where each
+    // stitch is along the edge's own long direction
+    const ec = centroid(pos, edge);
+    let long: V = [0, 0, 0], far = -1;
+    for (const id of edge) { const d = sub(get(pos, id), ec); const q = dot(d, d); if (q > far) { far = q; long = d; } }
+    long = norm(long);
+    if (dot(long, axis) < 0) long = mul(long, -1);
+    const ts = edge.map((id) => dot(sub(get(pos, id), ec), long));
+    const t0 = Math.min(...ts), t1 = Math.max(...ts);
+    edge.forEach((id, i) => {
+      const t = t1 > t0 ? (ts[i] - t0) / (t1 - t0) : 0.5;
+      const b = meridian[Math.round(t * (meridian.length - 1))];
+      seamEdges.push({ a: id, b, kind: 'seam', rest: w * 0.3 });
+    });
+    return;
   }
   // seam edges: pair each edge stitch with its nearest host stitch in the region
   for (const id of edge) {

@@ -84,13 +84,15 @@ $('m-close').addEventListener('click', () => toggleMaterials(false));
 // ---------------------------------------------------------------- solver worker
 const worker = new Worker(new URL('./geometry/solver.worker.ts', import.meta.url), { type: 'module' });
 let job = 0;
+const STILL = /[?&]still\b/.test(location.search);
 let model: Model | null = null;
 let lastPos: Float32Array | null = null;
 let warm = new Map<string, [number, number, number]>();
 worker.onmessage = (e: MessageEvent<{ type: 'frame'; job: number; pos: Float32Array; done: boolean }>) => {
   if (e.data.job !== job || !model) return;
   lastPos = e.data.pos;
-  view.update(e.data.pos);
+  // ?still: draw only the solved shape (screenshots on slow software renderers)
+  if (!STILL || e.data.done) view.update(e.data.pos);
   if (e.data.done) {
     $('solving').hidden = true;
     view.settled();

@@ -207,3 +207,66 @@ describe('motifs and cups worked in joined rounds', () => {
     expect(ext[1]).toBeGreaterThan(model.sizing.h * 5);
   });
 });
+
+describe('stalks and flattened pieces on a head (the Moogle)', () => {
+  const head = `Head
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Round 3 = [1 inc, 1 sc] x 6 (18)
+Round 4 = [1 sc, 1 inc, 1 sc] x 6 (24)
+Round 5 = [1 inc, 3 sc] x 6 (30)
+Round 6 = [2 sc, 1 inc, 2 sc] x 6 (36)
+Rounds 7-14 = 36 sc (36)
+Round 15 = [2 sc, 1 dec, 2 sc] x 6 (30)
+Round 16 = [1 dec, 3 sc] x 6 (24)
+Round 17 = [1 sc, 1 dec, 1 sc] x 6 (18)
+Round 18 = [1 dec, 1 sc] x 6 (12)
+Round 19 = 6 dec (6)
+Stuff firmly.
+`;
+
+  it('a pompom on a long narrow stem stands up off the head instead of folding the stem flat', () => {
+    const { model, pos } = solve(head + `
+Pompom
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Round 3 = [1 inc, 1 sc] x 6 (18)
+Round 4 = [1 sc, 1 inc, 1 sc] x 6 (24)
+Rounds 5-7 = 24 sc (24)
+Round 8 = [1 sc, 1 dec, 1 sc] x 6 (18)
+Round 9 = [1 dec, 1 sc] x 6 (12)
+Round 10 = 6 dec (6)
+Rounds 11-20 = 6 sc (6)
+Stuff firmly.
+Sew the stem to the top of the head.
+`);
+    const pom = model.graph.instances[1];
+    const rows = pom.rows.filter((r) => r.row > 0);
+    const y = (r: { nodes: number[] }) => r.nodes.reduce((a, id) => a + pos[id * 3 + 1], 0) / r.nodes.length;
+    // ten rounds of stem: most of ten stitch heights between the ball and the stem's end
+    expect(Math.abs(y(rows[9]) - y(rows[rows.length - 1]))).toBeGreaterThan(model.sizing.h * 7.5);
+  });
+
+  it('a flattened ear sewn "between round 3 and 9" is sewn along all of those rounds', () => {
+    const model = buildModel(parsePattern(head + `
+Ears (make 2)
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Rounds 3-4 = 12 sc (12)
+Flatten your work.
+Sew the ears to the head, between round 3 and 9.
+`), { tension: 'normal' });
+    const [h, ear] = model.graph.instances;
+    const edge = new Set(ear.rows[ear.rows.length - 1].nodes);
+    const rowOf = new Map<number, number>();
+    for (const r of h.rows) for (const id of r.nodes) rowOf.set(id, r.row);
+    const e = model.solverInput.edges;
+    const hostRows = new Set<number>();
+    for (let i = 0; i < e.length; i += 5) {
+      if (edge.has(e[i]) && rowOf.has(e[i + 1])) hostRows.add(rowOf.get(e[i + 1])!);
+      if (edge.has(e[i + 1]) && rowOf.has(e[i])) hostRows.add(rowOf.get(e[i])!);
+    }
+    expect(Math.min(...hostRows)).toBeLessThanOrEqual(4);
+    expect(Math.max(...hostRows)).toBeGreaterThanOrEqual(8);
+  });
+});

@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; ringR?: number[]; ringCorners?: (number[] | undefined)[]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; ringR?: number[]; ringCorners?: (number[] | undefined)[]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; stalk?: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -43,6 +43,7 @@ export class Solver {
   /** how hard stuffing rounds each node out: firmer stuffing rounds more (stuffed²) */
   private roundWeight?: Float32Array;
   private stuffedMask: Uint8Array | null = null;
+  private stalkMask?: Uint8Array;
   energy = Infinity;
   private comp?: Int32Array;
   private stickB?: Uint32Array;
@@ -92,6 +93,9 @@ export class Solver {
       this.stuffedMask = new Uint8Array(N).fill(1);
       this.roundWeight = new Float32Array(N);
       for (const pi of this.inst) if (pi.stuffed > 0 && pi.closed !== false) for (const id of pi.nodeIds) { this.stuffedMask[id] = input.fixed?.[id] ?? 0; this.roundWeight[id] = pi.stuffed * pi.stuffed; }
+      // a stalk has no stuffing to round it out or push it open
+      this.stalkMask = new Uint8Array(N);
+      for (const pi of this.inst) for (const id of pi.stalk ?? []) { this.stuffedMask[id] = 1; this.stalkMask[id] = 1; }
     }
     // mask of nodes NOT on a flattened pouch (ears): those get extra smoothing so the soft
     // double layer evens out instead of crumpling where its round end can't lie flat
@@ -346,7 +350,7 @@ export class Solver {
       if (pi.stuffed > 0) {
         const f = pi.stuffed * pi.hAvg * 0.1;
         for (const id of pi.nodeIds) {
-          if (fixed && fixed[id]) continue;
+          if ((fixed && fixed[id]) || this.stalkMask?.[id]) continue;
           const i = id * 3;
           p[i] += this.nrm[i] * f; p[i + 1] += this.nrm[i + 1] * f; p[i + 2] += this.nrm[i + 2] * f;
         }

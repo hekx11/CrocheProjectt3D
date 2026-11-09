@@ -1,5 +1,5 @@
 import type { Pattern } from '../model/types';
-import { buildGraph, type StitchGraph } from '../graph/build';
+import { buildGraph, type GEdge, type StitchGraph } from '../graph/build';
 import { computeSizing, type Sizing, type UserMaterials } from './sizing';
 import { isUpright, seed, type MarkerAnchor } from './seed';
 import { triangulate } from './mesh';
@@ -54,6 +54,34 @@ function motifCorners(rows: { corners?: number[]; anchors: number[]; nodes: numb
   return out;
 }
 
+/**
+ * A stalk: four or more rounds in a row of at most 8 stitches each (a pompom's stem, an antenna, a
+ * stalk). A tube that narrow takes no stuffing and stands out stiffly (often with a wire in it)
+ * instead of folding up: each stitch is braced to the one two rounds below it.
+ */
+function stalkOf(graph: StitchGraph, pi: StitchGraph['instances'][number]): { nodes: number[]; brace: GEdge[] } {
+  const rows = pi.rows.filter((r) => r.row > 0);
+  const nodes: number[] = [], brace: GEdge[] = [];
+  if (pi.stuffed === 0 || pi.piece.construction === 'rows') return { nodes, brace };
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j < rows.length && rows[j].nodes.length <= 8 && rows[j].nodes.length >= 4) j++;
+    if (j - i >= 4) {
+      const run = rows.slice(i, j);
+      for (const r of run) nodes.push(...r.nodes);
+      // stitch-by-stitch: round k+2's stitch j above round k's stitch j (same count all the way)
+      for (let k = 0; k + 2 < run.length; k++) {
+        const a = run[k].nodes, b = run[k + 2].nodes;
+        if (a.length !== b.length) continue;
+        a.forEach((id, q) => brace.push({ a: id, b: b[q], kind: 'into', rest: graph.nodes[run[k + 1].nodes[q]].h + graph.nodes[b[q]].h }));
+      }
+    }
+    i = Math.max(j, i + 1);
+  }
+  return { nodes, brace };
+}
+
 /** A flat piece worked in rounds (a coaster, a granny square): its closed rounds, for rounding out
  *  (or squaring up), without the slip stitches each round starts with to move across the round
  *  below: those lie on the round below, not on this one. */
@@ -98,7 +126,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     }
   }
 
-  const all = [...graph.edges, ...s.seamEdges.filter((e) => e.stick === undefined)];
+  const stalks = graph.instances.map((pi) => stalkOf(graph, pi));
+  const all = [...graph.edges, ...s.seamEdges.filter((e) => e.stick === undefined), ...stalks.flatMap((q) => q.brace)];
   const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
   const stick = new Float32Array(sticks.length * 3);
   sticks.forEach((e, i) => stick.set([e.a, e.b, e.stick!], i * 3));
@@ -108,6 +137,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
   for (const pi of graph.instances) {
     if (pi.stuffed > 0 && pi.piece.finish !== 'closed') for (const id of pi.rows[pi.rows.length - 1]?.nodes ?? []) stuffedNode[id] = 0;
   }
+  // a stalk is too narrow to take stuffing: it keeps its length instead of bunching up
+  for (const q of stalks) for (const id of q.nodes) stuffedNode[id] = 0;
   const edges = new Float32Array(all.length * 5);
   const give = new Float32Array(all.length);
   all.forEach((e, i) => {
@@ -152,6 +183,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       // a flat circle worked in rounds (a coaster): every closed round, for rounding out
       brim: brimOf(pi),
       ...roundsOf(graph, pi),
+      stalk: stalks[graph.instances.indexOf(pi)].nodes.length ? stalks[graph.instances.indexOf(pi)].nodes : undefined,
       // (and a strip wrapped round something, a veil or a collar, hangs from where it is tied)
       // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
       drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : wrapped(pi) ? 0.012 : 0,
