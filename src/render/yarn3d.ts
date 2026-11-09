@@ -487,7 +487,9 @@ export class Yarn3D {
           // upright like real ones rather than lying along the row
           if (st.parent >= 0) {
             const along = up.dot(X);
-            U.copy(Y).multiplyScalar(Math.max(up.dot(Y), h * 0.5)).addScaledVector(X, st.fan ? 0 : along * 0.3);
+            // and it follows the surface down to where it's worked: on a small ball the fabric curves
+            // away under a stitch, and one drawn flat in the plane of its top stands out from it
+            U.copy(Y).multiplyScalar(Math.max(up.dot(Y), h * 0.5)).addScaledVector(X, st.fan ? 0 : along * 0.3).addScaledVector(Z, up.dot(Z));
           } else U.copy(Y).multiplyScalar(h);
           O.copy(C).addScaledVector(U, -0.5);
         }
@@ -500,8 +502,17 @@ export class Yarn3D {
         // below the stitch: straight on down, under what it is worked into
         Ud.copy(U).normalize();
         const dip = ring && st.parent === ring.centre ? rr * 0.85 : this.radius * 2;
+        // how fast the fabric curves away along the row (a small ball's rounds are tight circles):
+        // the stitch's sides follow it rather than standing out in a straight line
+        let bend = 0, nb = 0;
+        for (const o of [st.prev, st.next]) if (o !== id) {
+          P(o, a).sub(C);
+          const d2 = a.lengthSq();
+          if (d2 > 1e-9) { bend += Math.max(0, (-2 * a.dot(Z)) / d2); nb++; }
+        }
+        if (nb) bend /= nb;
         const map = (x: number, y: number, z: number, xs: number) => {
-          q.copy(O).addScaledVector(X, xs * w).addScaledVector(Z, z * w);
+          q.copy(O).addScaledVector(X, xs * w).addScaledVector(Z, z * w - 0.5 * bend * (xs * w) ** 2);
           if (y >= 0) q.addScaledVector(U, y - 0.5); else q.addScaledVector(U, -0.5).addScaledVector(Ud, y * dip);
           // a decrease's legs part towards the two stitches it is worked into
           if (split && y < 0.3) q.addScaledVector(X, Math.sign(x) * split * 0.6 * Math.min(1, 1 - y / 0.3));
