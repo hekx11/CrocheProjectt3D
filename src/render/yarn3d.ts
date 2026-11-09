@@ -92,7 +92,7 @@ function rng(seed: number) {
  * Plied yarn: helical grooves between plies plus fine fibre lines along each ply.
  * Unplied plush: dense pile noise.
  */
-function strandNormalMap(look: YarnLook): THREE.DataTexture {
+export function strandNormalMap(look: YarnLook): THREE.DataTexture {
   const W = 64, H = 128; // W along one diameter, H around
   const hgt = new Float32Array(W * H);
   const rand = rng(7 + look.plies);
