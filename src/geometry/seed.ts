@@ -12,6 +12,8 @@ export interface MarkerAnchor {
    *  colour of the yarn it is stitched in, when the text names one */
   what?: 'nose' | 'cheek' | 'line';
   color?: string;
+  /** the pattern yarn that colour came from, when it is one (so a recolour follows it) */
+  yarn?: string;
 }
 
 export interface Seeded {
@@ -72,7 +74,9 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
     let phase = 0;
     if (prevAngles.length && row.anchors.some((a) => a >= 0)) {
       const diffs: number[] = [];
-      row.anchors.forEach((a, j) => { if (a >= 0 && prevAngles[a] !== undefined) diffs.push(prevAngles[a] - (TAU * j) / n); });
+      // (each stitch over the one it is worked into: both measured at their middles, or every round
+      // turns half a stitch further than the last and a tall piece is seeded twisted)
+      row.anchors.forEach((a, j) => { if (a >= 0 && prevAngles[a] !== undefined) diffs.push(prevAngles[a] - (TAU * (j + 0.5)) / n); });
       phase = circMean(diffs);
     }
     const angles: number[] = [];
@@ -177,16 +181,16 @@ function nearestByAngle(g: StitchGraph, angle: Float32Array, ids: number[], targ
 }
 
 /** The yarn colour an embroidery is stitched in: a yarn of the pattern named in the text, or a colour word. */
-function markColor(p: Pattern, text: string): string | undefined {
+function markColor(p: Pattern, text: string): { color: string; yarn?: string } | undefined {
   const t = text.toLowerCase();
-  let best: { at: number; c: string } | undefined;
-  const consider = (word: string, c: string) => {
+  let best: { at: number; c: string; yarn?: string } | undefined;
+  const consider = (word: string, c: string, yarn?: string) => {
     const at = t.indexOf(word.toLowerCase());
-    if (word.length > 2 && at >= 0 && (!best || word.length > 0 && at < best.at)) best = { at, c };
+    if (word.length > 2 && at >= 0 && (!best || word.length > 0 && at < best.at)) best = { at, c, yarn };
   };
-  for (const y of p.materials.yarns) consider(y.label.replace(/\s*yarn$/i, ''), y.color);
+  for (const y of p.materials.yarns) consider(y.label.replace(/\s*yarn$/i, ''), y.color, y.id);
   if (!best) for (const [k, c] of Object.entries(COLORS)) consider(k, c);
-  return best?.c;
+  return best && { color: best.c, yarn: best.yarn };
 }
 
 function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAnchor[] {
@@ -202,11 +206,12 @@ function placeMarkers(g: StitchGraph, p: Pattern, angle: Float32Array): MarkerAn
       // a nose is one mark in the middle; eyes and cheeks come in pairs
       const sides = m.kind === 'embroidery' && /\bnose\b/i.test(m.text) && !/eye|cheek/i.test(m.text) ? [0] : [-1, 1];
       const what = m.kind !== 'embroidery' ? undefined : /\bcheek|blush/i.test(m.text) ? 'cheek' : sides.length === 1 ? 'nose' : 'line';
-      const color = m.kind === 'embroidery' ? markColor(p, m.text) : undefined;
+      const mc = m.kind === 'embroidery' ? markColor(p, m.text) : undefined;
+      const color = mc?.color, yarn = mc?.yarn;
       for (const side of sides) {
         const th = FRONT + side * half;
         out.push({
-          what, color,
+          what, color, yarn,
           kind: m.kind,
           a: nearestByAngle(g, angle, ra, th),
           b: nearestByAngle(g, angle, rb, th),
@@ -383,11 +388,24 @@ function placeBase(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle: 
       }
       moved.push(leg);
     }
-    // the chains between the legs sit under the stitches worked into them
-    for (const id of pi.baseChains ?? []) {
-      const k = base.nodes.indexOf(id);
-      const over = first.nodes.filter((_, j) => first.anchors[j] === k);
-      pos.set(add(over.length ? centroid(pos, over) : A, mul(down, w * 0.6)), id * 3);
+    // the chains between the legs run straight across the gap, from the leg before them to the leg
+    // after (the crotch): left on one point they spread out in any direction once solved and the
+    // body above twists with them
+    const chainSet = new Set(pi.baseChains ?? []);
+    const B = base.nodes;
+    for (let k = 0; k < B.length; k++) {
+      if (!chainSet.has(B[k]) || (k > 0 && chainSet.has(B[k - 1]))) continue;
+      let e = k;
+      while (e + 1 < B.length && chainSet.has(B[e + 1])) e++;
+      const before = B[(k - 1 + B.length) % B.length], after = B[(e + 1) % B.length];
+      const n = e - k + 1;
+      if (chainSet.has(before) || chainSet.has(after)) {
+        for (let i = k; i <= e; i++) pos.set(add(A, mul(down, w * 0.6)), B[i] * 3);
+      } else {
+        const p0 = get(pos, before), p1 = get(pos, after);
+        for (let i = 0; i < n; i++) pos.set(add(p0, mul(sub(p1, p0), (i + 1) / (n + 1))), B[k + i] * 3);
+      }
+      k = e;
     }
     // stand on the legs side by side (left and right), not one behind the other
     if (legs.length === 2) {

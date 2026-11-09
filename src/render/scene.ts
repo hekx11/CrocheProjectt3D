@@ -169,11 +169,7 @@ export class CrochetView {
     }
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     this.baseColors = new Float32Array(V * 3);
-    const c = new THREE.Color();
-    for (let o = 0; o < V; o++) {
-      c.set(nodes[tris[this.corner[o]]].color); // Color.set already converts the sRGB hex to linear
-      this.baseColors.set([c.r, c.g, c.b], o * 3);
-    }
+    this.fillBaseColors();
     const sz = model.sizing;
     const yt = yarnTextures(sz.fiber);
     const look = yt.look;
@@ -220,45 +216,58 @@ export class CrochetView {
   private buildRidges(model: Model, yt: YarnTextures) {
     const nodes = model.graph.nodes;
     const sz = model.sizing;
+    // a motif in tall stitches (a granny square): each round's tops make one continuous braid of
+    // loops, as on sc fabric, running over the chains between the clusters too. Drawn per stitch,
+    // tall stitches fanned out of a space leave only scattered caps where that edge should be.
+    for (const pi of model.graph.instances) {
+      if (!pi.flat || pi.stuffed > 0 || pi.piece.construction === 'rows' || pi.piece.flatten) continue;
+      for (const row of pi.rows) {
+        if (!row.closed || row.row === 0) continue;
+        let k = 0;
+        while (k < row.nodes.length - 1 && nodes[row.nodes[k]].type === 'slst') k++;
+        const path = row.nodes.slice(k).filter((id) => !nodes[id].virtual);
+        const tall = path.filter((id) => ['hdc', 'dc', 'tr', 'dtr'].includes(nodes[id].type)).length;
+        if (path.length < 6 || tall < path.length * 0.5) continue;
+        this.addRidge(path, true, 0.28 * sz.h, nodes, yt);
+      }
+    }
     for (const pi of model.graph.instances) {
       for (let r = 1; r < pi.rows.length; r++) {
         const row = pi.rows[r];
         const prev = pi.rows[r - 1];
-        if (row.loop !== 'BLO' || prev.ring !== undefined || prev.nodes.length < 3) continue;
+        const blo = row.loop === 'BLO' && prev.ring === undefined && prev.nodes.length >= 3;
+        if (!blo) continue;
         const path = prev.nodes.filter((id) => !nodes[id].virtual);
         if (path.length < 3) continue;
-        const closed = prev.closed;
-        const radius = 0.3 * sz.h;
-        const segs = path.length * 4;
-        const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path.map(() => new THREE.Vector3()), closed), segs, radius, 8, closed);
-        // vertex colours per stitch along the ring; uv u = stitch index so the stitch texture follows
-        const count = geo.getAttribute('position').count;
-        const col = new Float32Array(count * 3);
-        const uvA = geo.getAttribute('uv') as THREE.BufferAttribute;
-        const c = new THREE.Color();
-        for (let i = 0; i < count; i++) {
-          const along = uvA.getX(i) * path.length;
-          c.set(nodes[path[Math.min(path.length - 1, Math.floor(along))]].color);
-          col.set([c.r, c.g, c.b], i * 3);
-          uvA.setXY(i, along, uvA.getY(i) * 0.6);
-        }
-        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-        const m = new THREE.MeshPhysicalMaterial({
-          vertexColors: true,
-          map: yt.cavityMap,
-          normalMap: yt.normalMap,
-          roughness: yt.look.roughness,
-          sheen: yt.look.sheen,
-          sheenRoughness: yt.look.sheenRoughness,
-          sheenColor: new THREE.Color().setScalar(yt.look.sheenTint),
-            });
-        const mesh = new THREE.Mesh(geo, m);
-        mesh.raycast = () => {};
-        this.ridges.add(mesh);
-        this.ridgeDefs.push({ mesh, path, closed, radius, segs });
+        this.addRidge(path, prev.closed, 0.3 * sz.h, nodes, yt);
       }
     }
   }
+
+  private addRidge(path: number[], closed: boolean, radius: number, nodes: Model['graph']['nodes'], yt: YarnTextures) {
+    const segs = path.length * 4;
+    const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path.map(() => new THREE.Vector3()), closed), segs, radius, 8, closed);
+    // vertex colours per stitch along the ring; uv u = stitch index so the stitch texture follows
+    const count = geo.getAttribute('position').count;
+    const uvA = geo.getAttribute('uv') as THREE.BufferAttribute;
+    for (let i = 0; i < count; i++) uvA.setXY(i, uvA.getX(i) * path.length, uvA.getY(i) * 0.6);
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    ridgeColors(geo, path, nodes);
+    const m = new THREE.MeshPhysicalMaterial({
+      vertexColors: true,
+      map: yt.cavityMap,
+      normalMap: yt.normalMap,
+      roughness: yt.look.roughness,
+      sheen: yt.look.sheen,
+      sheenRoughness: yt.look.sheenRoughness,
+      sheenColor: new THREE.Color().setScalar(yt.look.sheenTint),
+    });
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.raycast = () => {};
+    this.ridges.add(mesh);
+    this.ridgeDefs.push({ mesh, path, closed, radius, segs });
+  }
+
 
   private updateRidges() {
     const pos = this.pos, nrm = this.nrm;
@@ -340,6 +349,39 @@ export class CrochetView {
       sh.raycast = () => {}; // picking uses the real surface
       this.shells.add(sh);
     }
+  }
+
+  /** Stitch colours of the surface, from each small triangle corner's nearest stitch. */
+  private fillBaseColors() {
+    if (!this.model) return;
+    const { tris, graph } = this.model;
+    const c = new THREE.Color();
+    for (let o = 0; o < this.corner.length; o++) {
+      c.set(graph.nodes[tris[this.corner[o]]].color); // Color.set already converts the sRGB hex to linear
+      this.baseColors[o * 3] = c.r; this.baseColors[o * 3 + 1] = c.g; this.baseColors[o * 3 + 2] = c.b;
+    }
+  }
+
+  /**
+   * Change yarn colours in place (yarn id → css hex), keeping the solved shape: no re-solve, so the
+   * model doesn't twitch while someone drags through a colour picker.
+   */
+  recolor(colors: Map<string, string>) {
+    this.dirty = true;
+    if (!this.model) return;
+    const { graph, markers } = this.model;
+    for (const n of graph.nodes) { const c = colors.get(n.yarn); if (c) n.color = c; }
+    for (const pi of graph.instances) for (const st of pi.strands ?? []) { const c = colors.get(st.yarn); if (c) st.color = c; }
+    for (const m of markers) { const c = m.yarn && colors.get(m.yarn); if (c) m.color = c; }
+    this.fillBaseColors();
+    for (const d of this.ridgeDefs) ridgeColors(d.mesh.geometry, d.path, graph.nodes);
+    this.applyColors();
+    if (!this.pos.length) return;
+    this.updateMarkers();
+    // drop marker materials of colours no longer shown (dragging a picker makes one per step);
+    // only after the new ones exist, so the shader program they share stays compiled
+    const used = new Set(this.markers.children.map((o) => (o as THREE.Mesh).material));
+    for (const [k, m] of this.markMats) if (!used.has(m) && /^(cord|nose|cheek):/.test(k)) { m.dispose(); this.markMats.delete(k); }
   }
 
   highlight(line: number) {
@@ -552,6 +594,18 @@ export class CrochetView {
     const node = ids.map((id) => this.model!.graph.nodes[id]).find((n) => !n.virtual && n.line >= 0);
     if (node) this.onPick(node.line);
   }
+}
+
+/** A ridge tube's vertex colours: the stitch of the round below each point runs along. */
+function ridgeColors(geo: THREE.BufferGeometry, path: number[], nodes: Model['graph']['nodes']) {
+  const col = geo.getAttribute('color') as THREE.BufferAttribute;
+  const uvA = geo.getAttribute('uv') as THREE.BufferAttribute;
+  const c = new THREE.Color();
+  for (let i = 0; i < col.count; i++) {
+    c.set(nodes[path[Math.min(path.length - 1, Math.max(0, Math.floor(uvA.getX(i))))]].color);
+    col.setXYZ(i, c.r, c.g, c.b);
+  }
+  col.needsUpdate = true;
 }
 
 /** Each solver triangle is split into SUB × SUB small triangles. */
