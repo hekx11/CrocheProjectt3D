@@ -161,6 +161,17 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
   for (const pi of graph.instances) {
     if (pi.stuffed > 0 && pi.piece.finish !== 'closed') for (const id of pi.rows[pi.rows.length - 1]?.nodes ?? []) stuffedNode[id] = 0;
   }
+  // the decrease rounds that close a stuffed piece draw in: their yarn keeps its length rather than
+  // giving under the stuffing, or they stay as wide as the rounds before and their stitches lie
+  // flat, sticking out like spokes
+  for (const pi of graph.instances) {
+    if (!(pi.stuffed > 0) || pi.piece.finish !== 'closed') continue;
+    for (let k = pi.rows.length - 1; k > 0; k--) {
+      const r = pi.rows[k], before = pi.rows[k - 1];
+      if (r.nodes.length >= before.nodes.length) break;
+      for (const id of r.nodes) stuffedNode[id] = 0;
+    }
+  }
   // the chain between two legs (the crotch) is a bridge, not stuffed fabric: it keeps its length,
   // which keeps the legs apart. Bunched up, it lets them close in and the body above twists.
   for (const pi of graph.instances) for (const id of pi.baseChains ?? []) stuffedNode[id] = 0;
