@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>One strand</title>
+    <style>
+      :root { --bg: #f7f3ee; --panel: #fffdfa; --ink: #2b2522; --muted: #7b706a; --line: #e6ddd4; --accent: #c8643b; --view: #efe8e0; color-scheme: light; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #1d1a18; --panel: #25211f; --ink: #efe7df; --muted: #a59a92; --line: #3a3330; --accent: #e0835a; --view: #2b2623; color-scheme: dark; } }
+      html, body { height: 100%; margin: 0; }
+      body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; display: flex; flex-direction: column; }
+      #view { flex: 1; min-height: 0; background: var(--view); }
+      .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+      .bar input[type='range'] { flex: 1; min-width: 180px; accent-color: var(--accent); }
+      #stage { font-weight: 600; min-width: 14ch; }
+      .muted { color: var(--muted); }
+      label { display: inline-flex; gap: 6px; align-items: center; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="view"></div>
+    <div class="bar">
+      <span id="stage"></span>
+      <input id="t" type="range" min="0" max="1000" value="1000" aria-label="How much of the strand to draw" />
+      <label><input id="rounds" type="checkbox" /> colour by round</label>
+      <span class="muted">Magic ring · Rnd 1: ch 1, 6 sc in ring, sl st · Rnd 2: ch 1, 2 sc in each st, sl st · fasten off</span>
+    </div>
+    <script type="module" src="/src/strand-demo.ts"></script>
+  </body>
+</html>
