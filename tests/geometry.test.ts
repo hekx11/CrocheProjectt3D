@@ -269,6 +269,25 @@ Sew the ears to the head, between round 3 and 9.
     expect(Math.min(...hostRows)).toBeLessThanOrEqual(4);
     expect(Math.max(...hostRows)).toBeGreaterThanOrEqual(8);
   });
+
+  it('a flattened ear stands out from the head instead of lying down on it', () => {
+    const { model, pos } = solve(head + `
+Ears (make 2)
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Round 3 = 12 sc (12)
+Round 4 = [1 inc, 1 sc] x 6 (18)
+Rounds 5-6 = 18 sc (18)
+Flatten your work.
+Sew the ears to the head, between round 4 and 10.
+`);
+    const [h, ear] = model.graph.instances;
+    const c = [0, 1, 2].map((k) => h.nodeIds.reduce((a, id) => a + pos[id * 3 + k], 0) / h.nodeIds.length);
+    const d = (id: number) => Math.hypot(pos[id * 3] - c[0], pos[id * 3 + 1] - c[1], pos[id * 3 + 2] - c[2]);
+    const R = Math.max(...h.nodeIds.map(d));
+    const tip = ear.rows.find((r) => r.row === 1)!.nodes;
+    expect(tip.reduce((a, id) => a + d(id), 0) / tip.length - R).toBeGreaterThan(model.sizing.h * 2);
+  });
 });
 
 describe('arms with their tops flattened and sewn on at the sides', () => {

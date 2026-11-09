@@ -25,6 +25,7 @@ export class CrochetView {
   private relief = { map: null as THREE.Texture | null, scale: 0, bias: 0 };
   private markers = new THREE.Group();
   private yarn = new Yarn3D();
+  private dirty = true;
   private model: Model | null = null;
   private pos: Float32Array = new Float32Array();
   private nrm: Float32Array = new Float32Array();
@@ -60,19 +61,24 @@ export class CrochetView {
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.domElement.addEventListener('pointerup', (e) => this.pick(e));
+    // draw only when something changed (the camera moved, new positions, a new model): a big
+    // piece in yarn is heavy to draw, and redrawing it every frame starves the solver
+    this.controls.addEventListener('change', () => { this.dirty = true; });
     const loop = () => {
       this.controls.update();
-      this.renderer.render(this.scene, this.camera);
+      if (this.dirty) { this.dirty = false; this.renderer.render(this.scene, this.camera); }
       requestAnimationFrame(loop);
     };
     loop();
   }
 
   setBackground(color: string) {
+    this.dirty = true;
     this.scene.background = new THREE.Color(color);
   }
 
   private resize() {
+    this.dirty = true;
     const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -82,16 +88,19 @@ export class CrochetView {
   /** The shape has settled: frame it again, unless the viewer has moved the camera meanwhile (the
    *  first frame is framed before the solver has moved the stitches into place). */
   settled() {
+    this.dirty = true;
     if (!this.moved) this.fit();
   }
 
   resetView() {
+    this.dirty = true;
     this.needsFit = true;
     this.fit();
   }
 
   /** New model (topology changed). */
   setModel(model: Model) {
+    this.dirty = true;
     const keepView = !!this.model;
     this.model = model;
     if (this.mesh) {
@@ -334,6 +343,7 @@ export class CrochetView {
   }
 
   highlight(line: number) {
+    this.dirty = true;
     this.highlightLine = line;
     this.applyColors();
   }
@@ -368,6 +378,7 @@ export class CrochetView {
 
   /** New positions from the solver (same topology). */
   update(pos: Float32Array) {
+    this.dirty = true;
     if (!this.mesh || !this.model) return;
     this.pos = pos;
     const { tris, triPiece, graph } = this.model;

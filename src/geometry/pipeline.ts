@@ -127,6 +127,20 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
   }
 
   const stalks = graph.instances.map((pi) => stalkOf(graph, pi));
+  // a flattened piece (an ear) is two layers sewn together: stiff enough to stand out from where it
+  // is sewn instead of lying down on the head. Each stitch is braced to the one two rounds below.
+  const parentOf = new Map<number, { a: number; rest: number }>();
+  for (const e of graph.edges) if (e.kind === 'into' && !parentOf.has(e.b)) parentOf.set(e.b, { a: e.a, rest: e.rest });
+  for (const pi of graph.instances) {
+    if (!pi.piece.flatten || pi.stuffed > 0) continue;
+    const mine = new Set(pi.nodeIds);
+    const brace: GEdge[] = [];
+    for (const id of pi.nodeIds) {
+      const b = parentOf.get(id), a = b && parentOf.get(b.a);
+      if (b && a && mine.has(a.a)) brace.push({ a: a.a, b: id, kind: 'into', rest: (a.rest + b.rest) * 0.95 });
+    }
+    stalks.push({ nodes: [], brace });
+  }
   const all = [...graph.edges, ...s.seamEdges.filter((e) => e.stick === undefined), ...stalks.flatMap((q) => q.brace)];
   const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
   const stick = new Float32Array(sticks.length * 3);
