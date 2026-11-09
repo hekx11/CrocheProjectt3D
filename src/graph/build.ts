@@ -92,7 +92,7 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       const pi: PieceInstance = {
         piece, inst, rows: [], nodeIds: [],
         stuffed: piece.stuffing === 'firm' ? 1 : piece.stuffing === 'light' ? 0.75 : 0,
-        flat: piece.flatten || (piece.construction === 'rows') || (piece.stuffing === 'none' && piece.construction === 'joined-rounds' && !risesUp(piece)),
+        flat: piece.flatten || (piece.construction === 'rows') || (piece.stuffing === 'none' && !risesUp(piece)),
       };
       instances.push(pi);
       const add = (n: Omit<GNode, 'id'>) => {

@@ -58,6 +58,7 @@ export class CrochetView {
     this.scene.add(this.shells);
     this.scene.add(this.ridges);
     this.scene.add(this.yarn.group);
+    this.yarn.onChange = () => { this.dirty = true; };
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.domElement.addEventListener('pointerup', (e) => this.pick(e));
