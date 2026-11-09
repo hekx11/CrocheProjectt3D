@@ -574,7 +574,10 @@ function attach(
   }
   // long flat flaps sewn to the sides (floppy dog ears) hang down along the head, flat side out
   const hang = pi.piece.flatten && pi.stuffed === 0 && seam.hint === 'side' && pi.rows.length >= 6;
-  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : normal;
+  // a stuffed arm with its top pressed flat and sewn on at the side is sewn on along a line, not
+  // round a circle: it can't stand straight out and droops down and out from the shoulder
+  const droop = !hang && seam.hint === 'side' && !!pi.piece.flatEdge && pi.stuffed > 0;
+  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : droop ? norm(add(normal, [0, -0.6, 0])) : normal;
   if (hang) planes.set(pi, normal);
   const rot0 = rotator(opening, mul(dir, -1));
   // roll around the attach direction so the flat side faces the front (or out, for a hanging flap)

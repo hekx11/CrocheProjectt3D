@@ -697,7 +697,7 @@ export function parsePattern(text: string): Pattern {
       else if (p && /\bflat(ten)?\b[^.]*\b(bottom|base)\b|\b(bottom|base)\b[^.]*\bflat/.test(s)) { (p.shape ??= {}).flatBottom = true; kind = 'marker'; }
       // "flatten the upper part of the arm and close it" flattens only the opening, not the piece
       else if (/\bflatten/.test(s) && p && !/\bflatten (?:only )?(?:the )?(?:upper|top|end|opening|last)\b/.test(s)) { p.flatten = true; kind = 'marker'; }
-      else if (/\bflatten/.test(s)) kind = 'marker';
+      else if (/\bflatten/.test(s)) { if (p) p.flatEdge = true; kind = 'marker'; }
       if (p && /\b(shape|mould|mold|form)\b[^.]*\b(oval|egg)/.test(s)) { (p.shape ??= {}).oval = true; kind = 'marker'; }
       if (!p) continue;
       const between = /(?:between|over|across)\s+(?:rnds?|rows?|rounds?|r)\.?\s*(\d+)\s*(?:and|&|-|to)\s*(?:(?:rnds?|rows?|rounds?|r)\.?\s*)?(\d+)/.exec(s);

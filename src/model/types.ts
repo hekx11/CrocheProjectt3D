@@ -138,6 +138,8 @@ export interface PieceDef {
   strap?: { host: string; row?: number; back: boolean };
   /** "ch 3 (counts as first dc)": later rounds' starting chain of that length is a stitch too. */
   countsAs?: { n: number; as: StitchType };
+  /** "Flatten the upper part of the arm and close it": the opening is pressed flat and sewn shut. */
+  flatEdge?: boolean;
   /** Worked in rounds round both sides of a foundation chain (an oval start). */
   oval?: boolean;
   line: number;

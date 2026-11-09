@@ -270,3 +270,30 @@ Sew the ears to the head, between round 3 and 9.
     expect(Math.max(...hostRows)).toBeGreaterThanOrEqual(8);
   });
 });
+
+describe('arms with their tops flattened and sewn on at the sides', () => {
+  it('droop down and out from the shoulder instead of standing straight out', () => {
+    const body = `Body
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Round 3 = [1 inc, 1 sc] x 6 (18)
+Round 4 = [1 inc, 2 sc] x 6 (24)
+Rounds 5-14 = 24 sc (24)
+Round 15 = [1 dec, 2 sc] x 6 (18)
+Stuff firmly.
+
+Arms (make 2)
+Round 1 = 6 sc in magic ring (6)
+Round 2 = 6 inc (12)
+Rounds 3-10 = 12 sc (12)
+Stuff lightly.
+Flatten the upper parts of the arms and close them. Then sew them to each side of the body, on round 12.
+`;
+    expect(parsePattern(body).pieces[1].flatEdge).toBe(true);
+    const { model, pos } = solve(body);
+    const arm = model.graph.instances[1];
+    const y = (ids: number[]) => ids.reduce((a, id) => a + pos[id * 3 + 1], 0) / ids.length;
+    const tip = arm.rows.find((r) => r.row === 1)!.nodes, top = arm.rows[arm.rows.length - 1].nodes;
+    expect(y(top) - y(tip)).toBeGreaterThan(model.sizing.h * 2);
+  });
+});
