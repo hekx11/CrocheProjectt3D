@@ -139,9 +139,11 @@ worker.onmessage = (e: MessageEvent<{ type: 'frame'; job: number; pos: Float32Ar
   if (STILL) return;
   // the solver sends frames faster than a big piece can be redrawn: draw only the newest one per
   // screen frame, or the frames queue up here and the finished shape arrives seconds late
+  const j = job;
   if (!shown) shown = requestAnimationFrame(() => {
     shown = 0;
-    if (lastPos && model) view.update(lastPos);
+    // a new model may have come in meanwhile, and this frame's positions don't fit it
+    if (j === job && lastPos && model) view.update(lastPos);
   });
 };
 let shown = 0;
