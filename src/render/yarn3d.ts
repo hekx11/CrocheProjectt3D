@@ -352,9 +352,16 @@ export class Yarn3D {
     // second while it settles, and always the last shape
     const pos2 = pos.slice(), nrm2 = nrm.slice();
     this.pending = () => this.update0(pos2, nrm2, nodeW);
-    const wait = this.lastRun + Math.max(250, this.cost * 4) - performance.now();
+    // building the strand runs on the page's own thread and holds up the solver's messages, so
+    // while the shape settles it is rebuilt only now and then; settle() draws the final shape
+    const wait = this.lastRun + Math.max(600, this.cost * 8) - performance.now();
     if (wait <= 0) this.flush();
     else if (!this.timer) this.timer = setTimeout(() => { this.timer = 0; this.flush(); this.onChange?.(); }, wait) as unknown as number;
+  }
+  /** The solver is done: draw the last shape now instead of waiting for the timer. */
+  settle() {
+    if (this.timer) { clearTimeout(this.timer); this.timer = 0; }
+    this.flush();
   }
   private flush() {
     const run = this.pending;
