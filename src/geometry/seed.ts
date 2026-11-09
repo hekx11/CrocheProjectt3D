@@ -1,4 +1,4 @@
-import type { Pattern, Seam } from '../model/types';
+import type { Op, Pattern, PieceDef, Seam } from '../model/types';
 import { COLORS } from '../model/dictionary';
 import type { GEdge, GRow, PieceInstance, StitchGraph } from '../graph/build';
 
@@ -159,6 +159,28 @@ export function isUpright(pi: PieceInstance): boolean {
   return (pi.piece.base?.filter((b) => b.kind === 'row').length ?? 0) >= 2;
 }
 
+const CONTAINER = /\b(?:baskets?|bowls?|pots?|planters?|buckets?|bins?|trays?|vases?|containers?|organi[sz]ers?|caddy|caddies)\b/i;
+
+/**
+ * An open, unstuffed piece in rounds that is the whole project (sewn to nothing) and is a container:
+ * named so, or its base turns up into walls (a round in back loops only, then three or more rounds
+ * without increases). It is shown standing on its base, opening up.
+ */
+export function isStandaloneContainer(p: Pattern, piece: PieceDef): boolean {
+  if (p.pieces.length !== 1 || p.seams.length || piece.construction === 'rows' || piece.base) return false;
+  if (piece.finish === 'closed' || piece.stuffing === 'light' || piece.stuffing === 'firm' || piece.flatten) return false;
+  if (CONTAINER.test(p.title ?? '') || CONTAINER.test(piece.name)) return true;
+  const rows = piece.rows;
+  const worked = (ops: Op[]): Op[] => ops.flatMap((o) => o.kind === 'repeat' ? worked(o.ops) : o.kind === 'stitch' && o.type !== 'ch' && o.type !== 'slst' || o.kind === 'evenly' ? [o] : []);
+  const turn = rows.findIndex((r, i) => {
+    const ops = worked(r.ops);
+    return i >= 2 && r.computedCount >= rows[i - 1].computedCount && ops.length > 0 && ops.every((o) => 'loop' in o && o.loop === 'BLO');
+  });
+  if (turn < 0) return false;
+  const walls = rows.slice(turn + 1);
+  return walls.length >= 3 && walls.every((r) => Math.abs(r.computedCount - rows[turn].computedCount) <= rows[turn].computedCount * 0.1);
+}
+
 function centre(pi: PieceInstance, pos: Float32Array) {
   let cx = 0, cy = 0, cz = 0;
   for (const id of pi.nodeIds) { cx += pos[id * 3]; cy += pos[id * 3 + 1]; cz += pos[id * 3 + 2]; }
@@ -270,6 +292,12 @@ function placePieces(g: StitchGraph, p: Pattern, pos: Float32Array, angle: Float
       const c = centroid(pos, host.nodeIds);
       for (const id of host.nodeIds) { pos[id * 3 + 1] = 2 * c[1] - pos[id * 3 + 1]; pos[id * 3 + 2] = 2 * c[2] - pos[id * 3 + 2]; }
     }
+  }
+  // a basket, bowl or pot made on its own: it stands on its base with the opening up, not over
+  // the base like a hat
+  for (const pi of g.instances) if (isStandaloneContainer(p, pi.piece)) {
+    const c = centroid(pos, pi.nodeIds);
+    for (const id of pi.nodeIds) { pos[id * 3 + 1] = 2 * c[1] - pos[id * 3 + 1]; pos[id * 3 + 2] = 2 * c[2] - pos[id * 3 + 2]; }
   }
   const groups = new Map<PieceInstance, PieceInstance>();
   const find = (a: PieceInstance): PieceInstance => { let r = a; while (groups.get(r) && groups.get(r) !== r) r = groups.get(r)!; return r; };
