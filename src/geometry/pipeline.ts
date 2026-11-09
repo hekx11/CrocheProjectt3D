@@ -1,7 +1,7 @@
 import type { Pattern } from '../model/types';
 import { buildGraph, type GEdge, type StitchGraph } from '../graph/build';
 import { computeSizing, type Sizing, type UserMaterials } from './sizing';
-import { isUpright, seed, type MarkerAnchor } from './seed';
+import { isStandaloneContainer, isUpright, seed, type MarkerAnchor } from './seed';
 import { triangulate } from './mesh';
 import type { SolverInput } from './solver';
 
@@ -232,7 +232,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
       drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : wrapped(pi) ? 0.012 : 0,
       closed: pi.piece.finish === 'closed',
-      shape: pi.piece.shape,
+      // a basket stands on its base: the base sits flat instead of bulging down under it
+      shape: isStandaloneContainer(pattern, pi.piece) ? { ...pi.piece.shape, flatBottom: true } : pi.piece.shape,
       // a strip wrapped round something (a collar, a scarf, a veil) is bent round it, not flat
       flat: pi.flat && !wrapped(pi),
       side,

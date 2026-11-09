@@ -213,6 +213,26 @@ describe('motifs and cups worked in joined rounds', () => {
     const { ext, model } = solve(basket);
     expect(ext[1]).toBeGreaterThan(model.sizing.h * 5);
   });
+
+  it('a basket stands on its base with the opening up, base flat (not upside down like a hat)', () => {
+    for (const text of [fx('basket.txt'), 'Rnd 1: 6 sc in MR, join. (6)\nRnd 2: Ch 1, 2 sc in each st around, join. (12)\nRnd 3: Ch 1, 2 sc in each st around, join. (24)\nRnd 4: Ch 1, sc in the back loop of each st around, join. (24)\nRnds 5-10: Ch 1, sc in each st around, join. (24)']) {
+      const { model, pos } = solve(text);
+      const rows = model.graph.instances[0].rows.filter((r) => r.row > 0 && r.nodes.length);
+      const yOf = (ids: number[]) => ids.reduce((a, id) => a + pos[id * 3 + 1], 0) / ids.length;
+      const base = yOf(rows[0].nodes), rim = yOf(rows[rows.length - 1].nodes);
+      expect(rim - base).toBeGreaterThan(model.sizing.h * 4); // the opening is at the top
+      // nothing of the base hangs below the bottom of the walls
+      let low = Infinity;
+      for (const r of rows) for (const id of r.nodes) low = Math.min(low, pos[id * 3 + 1]);
+      const wall = rows.find((r) => r.nodes.length === rows[rows.length - 1].nodes.length)!;
+      expect(low).toBeGreaterThan(yOf(wall.nodes) - model.sizing.h * 1.5);
+    }
+    // a hat (no back-loop turn, nothing to say it is a container) still opens downwards
+    const hat = solve('Hat\nRnd 1: 6 sc in MR (6)\nRnd 2: inc x6 (12)\nRnd 3: (sc, inc) x6 (18)\nRnds 4-10: sc around (18)');
+    const hr = hat.model.graph.instances[0].rows.filter((r) => r.row > 0 && r.nodes.length);
+    const hy = (ids: number[]) => ids.reduce((a, id) => a + hat.pos[id * 3 + 1], 0) / ids.length;
+    expect(hy(hr[0].nodes)).toBeGreaterThan(hy(hr[hr.length - 1].nodes));
+  });
 });
 
 describe('stalks and flattened pieces on a head (the Moogle)', () => {

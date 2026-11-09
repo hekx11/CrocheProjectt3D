@@ -759,6 +759,15 @@ export function parsePattern(text: string): Pattern {
         let ra: number | undefined; let rb: number | undefined;
         if (between) { ra = resolveRow(p, +between[1], li, src); rb = resolveRow(p, +between[2], li, src); }
         else if (atRow) ra = rb = resolveRow(p, +atRow[1], li, src);
+        else if (p.rows.length >= 3 && /\beyes\b/.test(s)) {
+          // "insert the eyes" with no round named, once the widest rounds are worked: in the middle
+          // of that widest stretch, the face, as the pattern's photo would show
+          const max = Math.max(...p.rows.map((r) => r.computedCount));
+          const wide = p.rows.filter((r) => r.computedCount === max);
+          const mid = wide[Math.floor((wide.length - 1) / 2)];
+          ra = mid.index; rb = wide.length > 1 ? wide[Math.floor((wide.length - 1) / 2) + 1].index : mid.index;
+          diagnostics.push({ severity: 'info', code: 'assumption', line: li, src, message: `No round given for the eyes: placed between rounds ${mid.label.replace(/\D*(\d+).*/, '$1') || ra} and the next, in the middle of the widest rounds. Add "between rnds a and b" to move them.` });
+        }
         if (ra !== undefined) p.markers.push({ kind: 'safety-eyes', rowA: ra, rowB: rb, spacingSts: spacing ? +(spacing[1] ?? spacing[2]) : 6, sizeMm: materials.eyeMm, text: snt.text.trim(), line: li, src });
         continue;
       }
