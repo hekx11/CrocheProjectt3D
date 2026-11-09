@@ -47,7 +47,13 @@ export class CrochetView {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.addEventListener('start', () => (this.moved = true));
-    this.scene.add(new THREE.HemisphereLight(0xfff6ee, 0x6b6460, 1.6));
+    this.scene.add(new THREE.HemisphereLight(0xfff6ee, 0x9a928c, 1.5));
+    // a soft light that rides with the camera, so a view from below or behind isn't left in the dark
+    const head = new THREE.DirectionalLight(0xffffff, 0.9);
+    head.position.set(0, 0, 1);
+    head.target.position.set(0, 0, -1);
+    this.camera.add(head, head.target);
+    this.scene.add(this.camera);
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(300, 500, 600);
     this.scene.add(key);
@@ -90,6 +96,7 @@ export class CrochetView {
    *  first frame is framed before the solver has moved the stitches into place). */
   settled() {
     this.dirty = true;
+    if (YARN3D) this.yarn.settle();
     if (!this.moved) this.fit();
   }
 
@@ -554,7 +561,9 @@ export class CrochetView {
         this.markers.add(cheek);
       } else {
         const brow = new THREE.Mesh(
-          new THREE.CapsuleGeometry(1.2, (this.model.sizing.w * 0.9), 4, 8),
+          // an embroidered line (closed eyes, a mouth) is a few strands of floss over two or three
+          // stitches: long and thin, not a dot
+          new THREE.CapsuleGeometry(Math.max(0.6, this.model.sizing.w * 0.13), this.model.sizing.w * 2, 4, 8),
           this.markMat('line', () => new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })),
         );
         brow.position.copy(p).addScaledVector(n, 0.8 + lift);

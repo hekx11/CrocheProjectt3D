@@ -154,7 +154,9 @@ function fibreMask(look: YarnLook): THREE.DataTexture {
 
 interface Step { node: number; parent: number; prev: number; next: number; kind: Kind; pp: number; np: number; fan: boolean }
 interface Ring { centre: number; magic: boolean; n: number; first: number[] }
-interface Strand { steps: Step[]; ring?: Ring; ctrl: number; v0: number; s0: number }
+/** close: a piece finished closed ("fasten off, weave through the front loops and pull tight"):
+ *  its last round, which the tail is threaded through and drawn together. */
+interface Strand { steps: Step[]; ring?: Ring; close?: number[]; ctrl: number; v0: number; s0: number }
 
 const V = () => new THREE.Vector3();
 
@@ -180,6 +182,8 @@ export class Yarn3D {
   private sampleNode = new Int32Array(0);
   private nSamples = 0;
   private radius = 1;
+  private baseRadius = 1;
+  private sizeW = 1;
   private sub = 4;
   private rad = 8;
   private after = new Int32Array(0);
@@ -232,11 +236,15 @@ export class Yarn3D {
         if (first.length) ring = { centre: pi.centre, magic: st.kind !== 'chain', n: st.kind === 'chain' ? Math.max(3, st.n) : 0, first };
       }
       const ringPts = !ring ? 0 : ring.magic ? 2 + MAGIC_PTS * MAGIC_TURNS + 1 : 2 + 3 * ring.n + 1;
-      const ctrl = ringPts + steps.reduce((a, s) => a + TEMPLATE[s.kind].length, 0) + END.length;
+      const lastRow = pi.rows[pi.rows.length - 1];
+      const closeIds = pi.piece.finish === 'closed' && lastRow?.closed ? lastRow.nodes.filter((id) => !nodes[id].virtual) : [];
+      const close = closeIds.length >= 3 && closeIds.length <= 12 ? closeIds : undefined;
+      const endPts = close ? close.length + 3 : END.length;
+      const ctrl = ringPts + steps.reduce((a, s) => a + TEMPLATE[s.kind].length, 0) + endPts;
       for (let k = 0; k < ringPts; k++) ctrlNode.push(ring!.centre);
       for (const s of steps) for (let k = 0; k < TEMPLATE[s.kind].length; k++) ctrlNode.push(s.node);
-      for (let k = 0; k < END.length; k++) ctrlNode.push(steps[steps.length - 1].node);
-      this.strands.push({ steps, ring, ctrl, v0: 0, s0: 0 });
+      for (let k = 0; k < endPts; k++) ctrlNode.push(steps[steps.length - 1].node);
+      this.strands.push({ steps, ring, close, ctrl, v0: 0, s0: 0 });
       nCtrl += ctrl;
     }
     // as fine as the budget allows: points along the strand, around it, and fuzz shells
@@ -285,7 +293,8 @@ export class Yarn3D {
     };
 
     // yarn radius in sc widths: fat next to the stitch (tight amigurumi); plush yarn fatter
-    this.radius = model.sizing.w * (look.plies > 0 ? 0.19 + look.legRadius * 0.2 : 0.23 + look.legRadius * 0.2);
+    this.sizeW = model.sizing.w;
+    this.baseRadius = this.radius = model.sizing.w * (look.plies > 0 ? 0.19 + look.legRadius * 0.2 : 0.23 + look.legRadius * 0.2);
     const nmap = strandNormalMap(look);
     const fmask = look.shells.count > 0 ? fibreMask(look) : null;
     const mat = new THREE.MeshPhysicalMaterial({
@@ -343,9 +352,16 @@ export class Yarn3D {
     // second while it settles, and always the last shape
     const pos2 = pos.slice(), nrm2 = nrm.slice();
     this.pending = () => this.update0(pos2, nrm2, nodeW);
-    const wait = this.lastRun + Math.max(250, this.cost * 4) - performance.now();
+    // building the strand runs on the page's own thread and holds up the solver's messages, so
+    // while the shape settles it is rebuilt only now and then; settle() draws the final shape
+    const wait = this.lastRun + Math.max(600, this.cost * 8) - performance.now();
     if (wait <= 0) this.flush();
     else if (!this.timer) this.timer = setTimeout(() => { this.timer = 0; this.flush(); this.onChange?.(); }, wait) as unknown as number;
+  }
+  /** The solver is done: draw the last shape now instead of waiting for the timer. */
+  settle() {
+    if (this.timer) { clearTimeout(this.timer); this.timer = 0; }
+    this.flush();
   }
   private flush() {
     const run = this.pending;
@@ -363,7 +379,19 @@ export class Yarn3D {
     const Cn = V(), Nr = V(), e1 = V(), e2 = V(), q = V(), Ud = V(), t = V();
     let ci = 0;
     const put = (v: THREE.Vector3) => { ctrl[ci * 3] = v.x; ctrl[ci * 3 + 1] = v.y; ctrl[ci * 3 + 2] = v.z; ci++; };
+    const widths: number[] = [];
+    const Cc = V(), Nc = V();
     for (const s of this.strands) {
+      // a closed end: the tail drawn through the last round's front loops pulls them together, so
+      // its stitches lean in over the hole instead of leaving it open
+      if (s.close) {
+        Cc.set(0, 0, 0); Nc.set(0, 0, 0);
+        for (const id of s.close) { Cc.add(P(id, q)); Nc.x += nrm[id * 3]; Nc.y += nrm[id * 3 + 1]; Nc.z += nrm[id * 3 + 2]; }
+        Cc.multiplyScalar(1 / s.close.length);
+        if (Nc.lengthSq() < 1e-12) Nc.set(0, 1, 0);
+        Nc.normalize();
+        for (const id of s.close) for (let k = 0; k < 3; k++) pos[id * 3 + k] += (Cc.getComponent(k) - pos[id * 3 + k]) * 0.6;
+      }
       // the ring: centre, plane, radius; a stitch worked into it stands on the ring, not the centre
       let rr = 0, rw = 1;
       const ring = s.ring;
@@ -469,8 +497,25 @@ export class Yarn3D {
           put(q);
         };
         for (const [x, y, z] of TEMPLATE[st.kind]) map(x, y, z, x * (taper + (1 - taper) * Math.min(1, Math.max(0, y))));
-        if (st === s.steps[s.steps.length - 1]) for (const [x, y, z] of END) map(x, y, z, x);
+        if (st === s.steps[s.steps.length - 1]) {
+          if (s.close) {
+            // fasten off: through the front loop of each stitch of the last round, pulled tight,
+            // then down through the middle into the piece
+            map(0.5, 0.94, 0, 0.5);
+            for (const id of s.close) put(q.copy(P(id, a)).lerp(Cc, 0.45).addScaledVector(Nc, -this.radius * 0.5));
+            put(q.copy(Cc).addScaledVector(Nc, -this.radius));
+            put(q.copy(Cc).addScaledVector(Nc, -this.sizeW * 1.5));
+          } else for (const [x, y, z] of END) map(x, y, z, x);
+        }
+        widths.push(w);
       }
+    }
+    // the yarn is as thick as the stitches it makes allow: a piece the solver has drawn smaller than
+    // its gauge (tight stuffing) gets a strand to match, not fat loops crowding each other
+    if (widths.length) {
+      widths.sort((x, y) => x - y);
+      const mid = widths[widths.length >> 1];
+      this.radius = this.baseRadius * Math.min(1, Math.max(0.5, mid / this.sizeW));
     }
     this.sweep();
   }

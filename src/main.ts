@@ -126,14 +126,27 @@ let warm = new Map<string, [number, number, number]>();
 worker.onmessage = (e: MessageEvent<{ type: 'frame'; job: number; pos: Float32Array; done: boolean }>) => {
   if (e.data.job !== job || !model) return;
   lastPos = e.data.pos;
-  // ?still: draw only the solved shape (screenshots on slow software renderers)
-  if (!STILL || e.data.done) view.update(e.data.pos);
   if (e.data.done) {
+    cancelAnimationFrame(shown);
+    shown = 0;
+    view.update(e.data.pos);
     $('solving').hidden = true;
     view.settled();
     rememberPositions();
+    return;
   }
+  // ?still: draw only the solved shape (screenshots on slow software renderers)
+  if (STILL) return;
+  // the solver sends frames faster than a big piece can be redrawn: draw only the newest one per
+  // screen frame, or the frames queue up here and the finished shape arrives seconds late
+  const j = job;
+  if (!shown) shown = requestAnimationFrame(() => {
+    shown = 0;
+    // a new model may have come in meanwhile, and this frame's positions don't fit it
+    if (j === job && lastPos && model) view.update(lastPos);
+  });
 };
+let shown = 0;
 function rememberPositions() {
   if (!model || !lastPos) return;
   warm = new Map();
