@@ -242,7 +242,7 @@ export class Yarn3D {
       const lastRow = pi.rows[pi.rows.length - 1];
       const closeIds = pi.piece.finish === 'closed' && lastRow?.closed ? lastRow.nodes.filter((id) => !nodes[id].virtual) : [];
       const close = closeIds.length >= 3 && closeIds.length <= 12 ? closeIds : undefined;
-      const endPts = close ? close.length + 3 : END.length;
+      const endPts = close ? 2 * Math.ceil(close.length / 2) + 3 : END.length;
       const ctrl = ringPts + steps.reduce((a, s) => a + TEMPLATE[s.kind].length, 0) + endPts;
       for (let k = 0; k < ringPts; k++) ctrlNode.push(ring!.centre);
       for (const s of steps) for (let k = 0; k < TEMPLATE[s.kind].length; k++) ctrlNode.push(s.node);
@@ -510,10 +510,15 @@ export class Yarn3D {
         for (const [x, y, z] of TEMPLATE[st.kind]) map(x, y, z, x * (taper + (1 - taper) * Math.min(1, Math.max(0, y))));
         if (st === s.steps[s.steps.length - 1]) {
           if (s.close) {
-            // fasten off: through the front loop of each stitch of the last round, pulled tight,
-            // then down through the middle into the piece
+            // fasten off: cut a long tail and, with a needle, take it under every other stitch of the
+            // last round, over the one between; pull tight, then down through the middle into the
+            // piece so the end is hidden inside
             map(0.5, 0.94, 0, 0.5);
-            for (const id of s.close) put(q.copy(P(id, a)).lerp(Cc, 0.45).addScaledVector(Nc, -this.radius * 0.5));
+            for (let k = 0; k < s.close.length; k += 2) {
+              const id = s.close[k];
+              put(q.copy(P(id, a)).lerp(Cc, 0.3).addScaledVector(Nc, this.radius * 0.6));
+              put(q.copy(P(id, a)).lerp(Cc, 0.5).addScaledVector(Nc, -this.radius * 0.7));
+            }
             put(q.copy(Cc).addScaledVector(Nc, -this.radius));
             put(q.copy(Cc).addScaledVector(Nc, -this.sizeW * 1.5));
           } else for (const [x, y, z] of END) map(x, y, z, x);
