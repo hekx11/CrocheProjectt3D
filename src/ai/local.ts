@@ -1,4 +1,7 @@
 import type { Complete } from './assist';
+// Serve the ONNX Runtime files with the app instead of fetching them from a CDN.
+import ortMjs from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url';
+import ortWasm from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
 
 /**
  * Small AI that runs on the user's own device with Transformers.js (ONNX Runtime Web). It uses
@@ -9,7 +12,12 @@ import type { Complete } from './assist';
 
 export interface LocalModel { id: string; label: string; gpuDtype: string; cpuDtype: string; mb: number }
 
-export const webgpuAvailable = () => typeof navigator !== 'undefined' && 'gpu' in navigator;
+/** WebGPU that can actually be used: some browsers have navigator.gpu but no adapter. */
+export async function webgpuAvailable(): Promise<boolean> {
+  const gpu = typeof navigator !== 'undefined' ? (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu : undefined;
+  if (!gpu) return false;
+  try { return !!(await gpu.requestAdapter()); } catch { return false; }
+}
 
 type Gen = (messages: unknown, opts: object) => Promise<{ generated_text: string | { content: string }[] }[]>;
 let gen: (Gen & { dispose(): Promise<void> }) | null = null;
@@ -23,9 +31,11 @@ export async function loadModel(m: LocalModel, onProgress: (text: string, fracti
   loading = (async () => {
     const { pipeline, env } = await import('@huggingface/transformers');
     env.allowLocalModels = false;
+    const wasm = env.backends.onnx.wasm as { wasmPaths?: unknown } | undefined;
+    if (wasm) wasm.wasmPaths = { mjs: ortMjs, wasm: ortWasm };
     if (gen) { await gen.dispose().catch(() => undefined); gen = null; }
     const files = new Map<string, { loaded: number; total: number }>();
-    const gpu = webgpuAvailable();
+    const gpu = await webgpuAvailable();
     const p = await pipeline('text-generation', m.id, {
       device: gpu ? 'webgpu' : 'wasm',
       dtype: (gpu ? m.gpuDtype : m.cpuDtype) as never,
