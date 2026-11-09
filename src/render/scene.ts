@@ -554,7 +554,9 @@ export class CrochetView {
         this.markers.add(cheek);
       } else {
         const brow = new THREE.Mesh(
-          new THREE.CapsuleGeometry(1.2, (this.model.sizing.w * 0.9), 4, 8),
+          // an embroidered line (closed eyes, a mouth) is a few strands of floss over two or three
+          // stitches: long and thin, not a dot
+          new THREE.CapsuleGeometry(Math.max(0.6, this.model.sizing.w * 0.13), this.model.sizing.w * 2, 4, 8),
           this.markMat('line', () => new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })),
         );
         brow.position.copy(p).addScaledVector(n, 0.8 + lift);
