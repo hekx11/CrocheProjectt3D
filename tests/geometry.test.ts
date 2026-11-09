@@ -336,3 +336,59 @@ describe('seeding a tall piece', () => {
     expect(Math.abs(d)).toBeLessThan((2 * Math.PI) / 24);
   });
 });
+
+describe('a doll with a bow tie sewn to its chest', () => {
+  // the groom from a bride & groom pattern: legs joined into one body and head, a little
+  // row-worked bow sewn on the front just under the head
+  const doll = `LEGS
+Make 2:
+Rnd 1: start 5 sc in a magic ring [5]
+Rnd 2: inc in all 5 st [10]
+Rnd 3 – 7: sc in all 10 st [10]
+Fasten off on the first leg. Don’t fasten off on the second leg.
+
+BODY AND HEAD
+In the next round, we’ll join both legs together to create the body.
+Rnd 8: ch 2, sc in the marked stitch on the first leg, sc in next 9 st on the first leg, sc in next 2 ch, sc in next 10 st on the second leg, sc in the opposite side of the next 2 ch [24]
+Rnd 9: sc in all 24 st [24]
+Rnd 10: (sc in next 3 st, inc in next st) repeat 6 times [30]
+Rnd 11 – 12: sc in all 30 st [30]
+Rnd 13: BLO sc in all 30 st [30]
+Rnd 14: (sc in next 3 st, dec) repeat 6 times [24]
+Rnd 15: sc in all 24 st [24]
+Rnd 16: (sc in next 2 st, dec) repeat 6 times [18]
+Rnd 17 – 18: sc in all 18 st [18]
+Rnd 19: (sc in next st, dec) repeat 6 times [12]
+Rnd 20: sc in all 12 st [12]
+Rnd 21: BLO sc in all 12 st [12]
+Rnd 22: inc in all 12 st [24]
+Rnd 23: (sc in next 3 st, inc in next st) repeat 6 times [30]
+Rnd 24: (sc in next 4 st, inc in next st) repeat 6 times [36]
+Rnd 25: (sc in next 5 st, inc in next st) repeat 6 times [42]
+Rnd 26 – 34: sc in all 42 st [42]
+Rnd 35: (sc in next 5 st, dec) repeat 6 times [36]
+Rnd 36: (sc in next 4 st, dec) repeat 6 times [30]
+Rnd 37: (sc in next 3 st, dec) repeat 6 times [24]
+Rnd 38: (sc in next 2 st, dec) repeat 6 times [18]
+Rnd 39: (sc in next st, dec) repeat 6 times [12]
+Rnd 40: dec 6 times [6]
+Fasten off. Weave the yarn tail through the front loop of each remaining stitch and pull tight to close.
+
+BOW
+Ch 6. Crochet in rows.
+Row 1: start in second ch from hook, sc in next 2 ch, slst in next ch, sc in next 2 ch, ch 1, turn.
+Row 2: BLO sc in next 2 st, slst in next st, sc in next 2 st [5]
+Fasten off. Sew the bow tie to the front of the body, just below of the head.
+`;
+  it('stands upright: the bow does not push the chest forward', () => {
+    const { model, pos } = solve(doll);
+    const body = model.graph.instances.find((pi) => /body/i.test(pi.piece.name))!;
+    const rows = body.rows.filter((r) => r.row > 0 && r.nodes.length);
+    const c = (ids: number[]) => [0, 1, 2].map((k) => ids.reduce((a, id) => a + pos[id * 3 + k], 0) / ids.length);
+    // the torso: from where the legs join to the neck
+    const a = c(rows[0].nodes), b = c(rows[11].nodes);
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const lean = (Math.acos(d[1] / Math.hypot(...d)) * 180) / Math.PI;
+    expect(lean).toBeLessThan(5); // 9° forward when the bow was sewn on twice
+  }, 60000);
+});
