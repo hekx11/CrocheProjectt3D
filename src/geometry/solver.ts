@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; ringR?: number[]; ringCorners?: (number[] | undefined)[]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -179,27 +179,75 @@ export class Solver {
     });
   }
 
-  private roundOut(rings: number[][], n: [number, number, number]) {
+  private roundOut(rings: number[][], n: [number, number, number], ringR?: number[], corners?: (number[] | undefined)[]) {
     const p = this.pos;
     let cx = 0, cy = 0, cz = 0, m = 0;
     for (const r of rings) for (const id of r) { cx += p[id * 3]; cy += p[id * 3 + 1]; cz += p[id * 3 + 2]; m++; }
     if (!m) return;
     cx /= m; cy /= m; cz /= m;
-    for (const r of rings) {
-      if (r.length < 6) continue;
+    rings.forEach((r, ri) => {
+      if (r.length < 6) return;
       const vs = r.map((id) => {
         let dx = p[id * 3] - cx, dy = p[id * 3 + 1] - cy, dz = p[id * 3 + 2] - cz;
         const d = dx * n[0] + dy * n[1] + dz * n[2];
         dx -= d * n[0]; dy -= d * n[1]; dz -= d * n[2];
         return [dx, dy, dz, Math.hypot(dx, dy, dz) || 1e-6];
       });
-      const R = vs.reduce((a, v) => a + v[3], 0) / vs.length;
+      // at least most of its own width: stitches fanned out of one space (a granny square's corner
+      // groups) otherwise bunch up where they are worked and the round folds into spikes
+      const R = Math.max(vs.reduce((a, v) => a + v[3], 0) / vs.length, (ringR?.[ri] ?? 0) * 0.9);
+      const cs = corners?.[ri];
+      if (cs && cs.length >= 3) { this.toPolygon(r, cs, vs, R, [cx, cy, cz], n); return; }
       r.forEach((id, j) => {
         const [dx, dy, dz, L] = vs[j];
         const k = ((R - L) / L) * 0.25;
         p[id * 3] += dx * k; p[id * 3 + 1] += dy * k; p[id * 3 + 2] += dz * k;
       });
+    });
+  }
+
+  /** Pull a round toward a regular polygon with its corners at the given stitches (a granny square). */
+  private toPolygon(r: number[], cs: number[], vs: number[][], R: number, c: number[], n: [number, number, number]) {
+    const p = this.pos;
+    const k = cs.length;
+    // plane basis
+    const a = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const dot = a[0] * n[0] + a[1] * n[1] + a[2] * n[2];
+    let u = [a[0] - dot * n[0], a[1] - dot * n[1], a[2] - dot * n[2]];
+    const ul = Math.hypot(u[0], u[1], u[2]); u = u.map((x) => x / ul);
+    const w = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+    const ang = (j: number) => Math.atan2(vs[j][0] * w[0] + vs[j][1] * w[1] + vs[j][2] * w[2], vs[j][0] * u[0] + vs[j][1] * u[1] + vs[j][2] * u[2]);
+    // corners evenly spaced, turned to where they are now
+    const step = (2 * Math.PI) / k;
+    const dir = this.windingOf(cs, ang) || 1;
+    let sx = 0, sy = 0;
+    cs.forEach((j, i) => { const d = ang(j) - dir * i * step; sx += Math.cos(d); sy += Math.sin(d); });
+    const phi0 = Math.atan2(sy, sx);
+    // same perimeter as the circle of radius R: circumradius of the polygon
+    const Rc = (Math.PI * R) / (k * Math.sin(Math.PI / k));
+    const cornerPos = cs.map((_, i) => { const t = phi0 + dir * i * step; return [Math.cos(t) * Rc, Math.sin(t) * Rc]; });
+    const m = r.length;
+    for (let i = 0; i < k; i++) {
+      const j0 = cs[i], j1 = cs[(i + 1) % k];
+      const span = ((j1 - j0 + m) % m) || m;
+      for (let s = 0; s < span; s++) {
+        const j = (j0 + s) % m;
+        const t = s / span;
+        const tx = cornerPos[i][0] * (1 - t) + cornerPos[(i + 1) % k][0] * t;
+        const ty = cornerPos[i][1] * (1 - t) + cornerPos[(i + 1) % k][1] * t;
+        const id = r[j];
+        const target = [c[0] + u[0] * tx + w[0] * ty, c[1] + u[1] * tx + w[1] * ty, c[2] + u[2] * tx + w[2] * ty];
+        const cur = [c[0] + vs[j][0], c[1] + vs[j][1], c[2] + vs[j][2]];
+        for (let q = 0; q < 3; q++) p[id * 3 + q] += (target[q] - cur[q]) * 0.2;
+      }
     }
+  }
+
+  /** +1 when the round runs counter-clockwise (by its corner angles), -1 clockwise. */
+  private windingOf(cs: number[], ang: (j: number) => number): number {
+    let s = 0;
+    for (let i = 0; i < cs.length; i++) { let d = ang(cs[(i + 1) % cs.length]) - ang(cs[i]); while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; s += d; }
+    return Math.sign(s);
   }
 
   private shapeBy(pi: { nodeIds: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean } }) {
@@ -288,7 +336,7 @@ export class Solver {
         const g = pi.drape * pi.hAvg;
         for (const id of pi.nodeIds) if (!(fixed && fixed[id])) { p[id * 3 + 1] -= g; if (drop) drop[this.comp![id]] += g; }
       }
-      if (pi.rings) this.roundOut(pi.rings, pi.planeNormal);
+      if (pi.rings) this.roundOut(pi.rings, pi.planeNormal, pi.ringR, pi.ringCorners);
       if (pi.brim) this.holdBrim(pi.brim);
       if (pi.shape) this.shapeBy(pi);
       if (pi.flat) {

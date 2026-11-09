@@ -141,3 +141,31 @@ Fasten off.
     expect(r).toBeGreaterThan(nominal * 0.8);
   });
 });
+
+describe('motifs and cups worked in joined rounds', () => {
+  const granny = [
+    'Ch 4, join with a sl st to form a ring.',
+    'Round 1: Ch 3 (counts as first dc), 2 dc into ring, ch 2, *3 dc into ring, ch 2; repeat from * 2 more times. Join with sl st to top of beg ch-3. (12 dc, 4 ch-2 spaces)',
+    'Round 2: Sl st into next 2 dc and into ch-2 space. Ch 3, (2 dc, ch 2, 3 dc) in same space, ch 1, *(3 dc, ch 2, 3 dc) in next ch-2 space, ch 1; repeat from * 2 more times. Join. (24 dc)',
+    'Round 3: Sl st into next 2 dc and into ch-2 space. Ch 3, (2 dc, ch 2, 3 dc) in same space, ch 1, 3 dc in next ch-1 space, ch 1, *(3 dc, ch 2, 3 dc) in next ch-2 space, ch 1, 3 dc in next ch-1 space, ch 1; repeat from * 2 more times. Join. (36 dc)',
+  ].join('\n');
+
+  it('a granny square lies flat at its full size, each round about a dc taller than the last', () => {
+    const { ext, model, pos } = solve(granny);
+    const { h } = model.sizing;
+    expect(ext[1]).toBeLessThan(h);
+    const rows = model.graph.instances[0].rows.filter((r) => r.row > 0);
+    const radius = rows.map((r) => {
+      const c = [0, 2].map((k) => r.nodes.reduce((a, id) => a + pos[id * 3 + k], 0) / r.nodes.length);
+      return r.nodes.reduce((a, id) => a + Math.hypot(pos[id * 3] - c[0], pos[id * 3 + 2] - c[1]), 0) / r.nodes.length;
+    });
+    // dc are ~1.9 sc tall: each round adds well over one sc height (they used to bunch up at 2–3 mm)
+    expect(radius[2] - radius[0]).toBeGreaterThan(2 * h * 1.2);
+  });
+
+  it('a basket (rounds that stop increasing) stands up instead of lying flat', () => {
+    const basket = 'Rnd 1: Ch 3 (does not count as a st), 12 dc in 3rd ch from hook, sl st to first dc to join. (12)\nRnd 2: Ch 2, 2 dc in each st around, sl st to join. (24)\nRnd 3: Ch 1, sc in the back loop of each st around, sl st to join. (24)\nRnds 4-12: Ch 1, sc in each st around, sl st to join. (24)';
+    const { ext, model } = solve(basket);
+    expect(ext[1]).toBeGreaterThan(model.sizing.h * 5);
+  });
+});

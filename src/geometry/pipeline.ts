@@ -19,6 +19,18 @@ const STIFF = { yarn: 1, into: 1, ring: 0.6, join: 0.7, seam: 0.5 } as const;
 /** How hard stuffed yarn resists stretching (1 = rigid). Lower = looser yarn, rounder stuffed shapes. */
 const STRETCH_GIVE = 0.3;
 
+/**
+ * A motif with the same number of corners (3 to 8) on every round that has any (a granny square, a
+ * hexagon) is blocked to that polygon, not to a circle.
+ */
+function motifCorners(rows: { corners?: number[] }[]): (number[] | undefined)[] | undefined {
+  const ks = new Set(rows.filter((r) => r.corners).map((r) => r.corners!.length));
+  if (ks.size !== 1 || rows.filter((r) => r.corners).length < 1) return undefined;
+  const k = [...ks][0];
+  if (k < 3 || k > 8) return undefined;
+  return rows.map((r) => r.corners);
+}
+
 /** Parse result → sized stitch graph → seeded positions → solver input. */
 export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<string, [number, number, number]>): Model {
   const sizing = computeSizing(pattern, user);
@@ -96,6 +108,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       // a flat circle worked in rounds (a coaster): every closed round, for rounding out
       brim: brimOf(pi),
       rings: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes) : undefined,
+      ringCorners: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? motifCorners(pi.rows.filter((r) => r.closed && r.row > 0)) : undefined,
+      ringR: pi.flat && !pi.piece.flatten && pi.piece.construction !== 'rows' && pi.stuffed === 0 && !pi.piece.base ? pi.rows.filter((r) => r.closed && r.row > 0).map((r) => r.nodes.reduce((a, id) => a + graph.nodes[id].w, 0) / (2 * Math.PI)) : undefined,
       // (and a strip wrapped round something, a veil or a collar, hangs from where it is tied)
       // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
       drape: pi.piece.base && !isUpright(pi) && pi.stuffed === 0 ? 0.04 : wrapped(pi) ? 0.012 : 0,

@@ -15,6 +15,9 @@ import bear from '../fixtures/bear-head.txt?raw';
 import coaster from '../fixtures/coaster.txt?raw';
 import flower from '../fixtures/flower.txt?raw';
 import ukBall from '../fixtures/uk-ball.txt?raw';
+import granny from '../fixtures/granny-square.txt?raw';
+import basket from '../fixtures/basket.txt?raw';
+import cat from '../fixtures/sleepy-cat.txt?raw';
 
 const EXAMPLES: Record<string, string> = {
   'Bear head (several pieces)': bear,
@@ -22,6 +25,9 @@ const EXAMPLES: Record<string, string> = {
   'Coaster (flat rows)': coaster,
   'Flower (joined rounds)': flower,
   'Mini ball (UK terms)': ukBall,
+  'Granny square (chain spaces)': granny,
+  'Basket (walls from a flat base)': basket,
+  'Sleepy cat (oval start)': cat,
 };
 
 const store = {

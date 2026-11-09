@@ -56,6 +56,9 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
   let y = 0;
   let prevAngles: number[] = [];
   if (pi.centre !== undefined) pos.set([0, 0, 0], pi.centre * 3);
+  const oval = !!pi.piece.oval;
+  const chainRow = oval ? pi.rows.find((r) => r.row === 0) : undefined;
+  const chainLen = chainRow ? chainRow.nodes.reduce((a, id) => a + g.nodes[id].w, 0) * 0.9 : 0;
   for (const row of pi.rows) {
     const n = row.nodes.length;
     if (!n) continue;
@@ -73,6 +76,32 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
       phase = circMean(diffs);
     }
     const angles: number[] = [];
+    if (oval) {
+      // round both sides of a foundation chain: a stadium (two straight sides, round ends) round
+      // the chain, starting at the hook end and running back along the first side
+      if (row.row === 0) {
+        row.nodes.forEach((id, j) => { pos.set([(j - (n - 1) / 2) * (chainLen / n), 0, 0], id * 3); angle[id] = 0; });
+        prevAngles = row.nodes.map(() => 0);
+        continue;
+      }
+      const L = chainLen;
+      const r = Math.max(wsum / n, (wsum - 2 * L) / TAU);
+      const P = 2 * L + TAU * r;
+      row.nodes.forEach((id, j) => {
+        let d = ((j + 0.5) / n) * P;
+        let x: number, z: number, th: number;
+        if (d < L) { x = L / 2 - d; z = r; th = Math.PI / 2; }
+        else if ((d -= L) < Math.PI * r) { th = Math.PI / 2 + d / r; x = -L / 2 + r * Math.cos(th); z = r * Math.sin(th); }
+        else if ((d -= Math.PI * r) < L) { x = -L / 2 + d; z = -r; th = (3 * Math.PI) / 2; }
+        else { d -= L; th = (3 * Math.PI) / 2 + d / r; x = L / 2 + r * Math.cos(th); z = r * Math.sin(th); }
+        angles.push(th);
+        angle[id] = th;
+        pos.set([x, y, z], id * 3);
+      });
+      prevAngles = angles;
+      Rprev = R;
+      continue;
+    }
     row.nodes.forEach((id, j) => {
       const th = phase + (TAU * (j + 0.5)) / n;
       angles.push(th);

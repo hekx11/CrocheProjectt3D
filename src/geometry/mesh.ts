@@ -38,11 +38,25 @@ export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint
         }
         continue;
       }
+      // the first round of an oval goes round both sides of its foundation chain: fill between
+      if (pi.piece.oval && prev.row === 0 && !prev.closed) {
+        for (let j = 0; j < m; j++) {
+          const j1 = (j + 1) % m;
+          const a = Math.max(0, A[j]), b = Math.max(0, A[j1]);
+          add(C[j], C[j1], P[Math.min(b, n - 1)]);
+          if (a !== b) add(C[j], P[Math.min(b, n - 1)], P[Math.min(a, n - 1)]);
+        }
+        continue;
+      }
       const prevClosed = prev.closed && prev.row > 0 || prev.ring !== undefined || prev === pi.baseRow;
+      // anchors run once round: stitches at the end worked back into where the round began
+      // ("2 dc in the base of the ch 4") are past the end, not back at the start
+      const U = A.map((x) => Math.max(0, x));
+      for (let j = 1; j < m; j++) while (U[j] < U[j - 1] - n / 2) U[j] += n;
       for (let j = 0; j < m; j++) {
         const last = j === m - 1;
-        const aj = Math.max(0, A[j]);
-        let aj1 = last ? Math.max(0, A[0]) + n : Math.max(0, A[j + 1]);
+        const aj = U[j];
+        let aj1 = last ? U[0] + n : U[j + 1];
         if (aj1 < aj) aj1 += n;
         if (aj1 - aj > n) aj1 = aj + n;
         const cj1 = C[(j + 1) % m];
