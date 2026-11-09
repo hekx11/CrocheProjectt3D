@@ -141,7 +141,17 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     }
     stalks.push({ nodes: [], brace });
   }
-  const all = [...graph.edges, ...s.seamEdges.filter((e) => e.stick === undefined), ...stalks.flatMap((q) => q.brace)];
+  // fastened off and closed: the tail through the last round's front loops draws it together, so
+  // tie each of its stitches to the one opposite, short, or the end stays a wide hole that the
+  // last stitches have to stretch across like spokes
+  const cinch: typeof graph.edges = [];
+  for (const pi of graph.instances) {
+    const last = pi.rows[pi.rows.length - 1];
+    if (pi.piece.finish !== 'closed' || !last?.closed || last.nodes.length < 3 || last.nodes.length > 12) continue;
+    const L = last.nodes, n = L.length, half = n >> 1;
+    for (let j = 0; j < (n % 2 ? n : half); j++) cinch.push({ a: L[j], b: L[(j + half) % n], kind: 'join', rest: graph.nodes[L[j]].w * 0.7 });
+  }
+  const all = [...graph.edges, ...cinch, ...s.seamEdges.filter((e) => e.stick === undefined), ...stalks.flatMap((q) => q.brace)];
   const sticks = s.seamEdges.filter((e) => e.stick !== undefined);
   const stick = new Float32Array(sticks.length * 3);
   sticks.forEach((e, i) => stick.set([e.a, e.b, e.stick!], i * 3));
