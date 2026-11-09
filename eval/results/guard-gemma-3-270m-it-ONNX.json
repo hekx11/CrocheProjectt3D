@@ -1,0 +1,491 @@
+{
+  "cases": 50,
+  "modellable": 48,
+  "rules": {
+    "right": 26,
+    "wrongAccepted": 3,
+    "flagged": 21
+  },
+  "perCase": {
+    "R01": {
+      "line": "1 sc in the first st, 2 sc in the next st, repeat this sequence 5 more times (18)",
+      "rules": "wrong-accepted",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "wrong-accepted"
+      }
+    },
+    "R02": {
+      "line": "[Sc in next 2 sts, 2 sc in next st] around. (24 sts)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R03": {
+      "line": "Sc in next 3 sc, sc2tog; rep around - 24 sts",
+      "rules": "flagged",
+      "rulesMsg": "I count 25 stitches, the pattern says 24.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "30 sc blo (30)",
+        "fallback": "flagged",
+        "fallbackSyntax": "30 sc blo (30)"
+      }
+    },
+    "R04": {
+      "line": "Work 2 sc into every stitch (12)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R05": {
+      "line": "Inc, sc 1. Repeat 6 times. (18)",
+      "rules": "right",
+      "rulesMsg": "\"repeat 6 times\" read as 6 times in total.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R06": {
+      "line": "sc in each stitch around for a total of 24 stitches",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"for 24 st\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "24 sc blo (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "24 sc blo (24)"
+      }
+    },
+    "R07": {
+      "line": "Invisible decrease 6 times, evenly, sc in all other sts (12)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"other st\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "18 sc blo (12)",
+        "fallback": "flagged",
+        "fallbackSyntax": "18 sc blo (12)"
+      }
+    },
+    "R08": {
+      "line": "Single crochet four, then decrease. Repeat around. (25)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R09": {
+      "line": "*2 sc in next st, sc in next 3 sts* repeat 6 times (30)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R10": {
+      "line": "sc around in back loops (36)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R11": {
+      "line": "In FLO: sl st into each stitch around (18)",
+      "rules": "right",
+      "rulesMsg": "Ignored: \"in\".",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R12": {
+      "line": "6 increases spread evenly around the round (18)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"spread around\". If they matter, add \"=> …\" with short syntax. A part round: the 6 stitches it leaves unworked carry on into the next round.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "6 sc blo (18)",
+        "fallback": "flagged",
+        "fallbackSyntax": "6 sc blo (18)"
+      }
+    },
+    "R13": {
+      "line": "hdc in each st around (24 hdc)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R14": {
+      "line": "Sc 7, inc 2, sc 7, inc 2 (22)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R15": {
+      "line": "sc2tog around (15)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R16": {
+      "line": "Make 2 sc in each of the next 2 stitches, then sc in the next 2 stitches. Do this 3 times. (18)",
+      "rules": "right",
+      "rulesMsg": "\"repeat 3 times\" read as 3 times in total.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R17": {
+      "line": "SC in the first 6 sts, DC in the next 12 sts, SC in the last 6 sts (24)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"6 st\". If they matter, add \"=> …\" with short syntax. A part round: the 5 stitches it leaves unworked carry on into the next round.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "24 sc blo (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "24 sc blo (24)"
+      }
+    },
+    "R18": {
+      "line": "sc 6, (sc, inc) 3 times, sc 6 (21)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R19": {
+      "line": "2 sc in each st around = 12",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"12\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "6 sc blo (6)",
+        "fallback": "flagged",
+        "fallbackSyntax": "6 sc blo (6)"
+      }
+    },
+    "R20": {
+      "line": "Dec over the next two stitches, sc in the next 4 stitches, around (30)",
+      "rules": "flagged",
+      "rulesMsg": "I count 5 stitches, the pattern says 30. 30 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "36 sc blo (36)",
+        "fallback": "flagged",
+        "fallbackSyntax": "36 sc blo (36)"
+      }
+    },
+    "R21": {
+      "line": "Repeat (sc 2, inc) all the way around (24)",
+      "rules": "flagged",
+      "rulesMsg": "Couldn't read this instruction. Add \"=> …\" with short syntax, e.g. \"=> 18 sc\".",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "24 sc blo (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "24 sc blo (24)"
+      }
+    },
+    "R22": {
+      "line": "sc in back loop of each stitch (12)",
+      "rules": "wrong-accepted",
+      "rulesMsg": "A part round: the 11 stitches it leaves unworked carry on into the next round; ignored: \"st\".",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "wrong-accepted"
+      }
+    },
+    "R23": {
+      "line": "Sc in next 13 sts, dec, sc in next 13 sts, dec (28)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R24": {
+      "line": "BLO: (sc 2, dec) x 6 (18)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R25": {
+      "line": "*Sc in next st, hdc in next st, dc in next st; repeat from * 5 more times (18)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R26": {
+      "line": "Sc in each stitch, increasing in every other stitch (18)",
+      "rules": "flagged",
+      "rulesMsg": "I count 12 stitches, the pattern says 18.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "12 sc blo (18)",
+        "fallback": "flagged",
+        "fallbackSyntax": "12 sc blo (18)"
+      }
+    },
+    "R27": {
+      "line": "Sc in each st, decreasing 3 times evenly (15)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R28": {
+      "line": "Increase in every stitch around - 12 st",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R29": {
+      "line": "sc in each of the next 34 sts, sc2tog (35)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R30": {
+      "line": "Single crochet in each stitch around but in the last stitch work 2 sc (25)",
+      "rules": "flagged",
+      "rulesMsg": "I count 27 stitches, the pattern says 25. Ran out of stitches 3×.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "24 sc blo (25)",
+        "fallback": "flagged",
+        "fallbackSyntax": "24 sc blo (25)"
+      }
+    },
+    "R31": {
+      "line": "Work 6 decreases evenly around (12)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R32": {
+      "line": "Sc 2 tog all around (6)",
+      "rules": "flagged",
+      "rulesMsg": "I count 1 stitches, the pattern says 6. 11 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "6 Sc 2 tog (12)",
+        "fallback": "flagged",
+        "fallbackSyntax": "6 Sc 2 tog (12)"
+      }
+    },
+    "R33": {
+      "line": "Sc around, increasing 6 times evenly (36)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R34": {
+      "line": "(Sc in next st, inc in next st, sc in next 2 st) x 6 (30)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R35": {
+      "line": "Sl st in next 3, sc in next 12, sl st in next 3 (18)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "R36": {
+      "line": "tr in next 6 sts, sc in remaining sts (12)",
+      "rules": "wrong-accepted",
+      "rulesMsg": "A part round: the 5 stitches it leaves unworked carry on into the next round; ignored: \"remaining st\".",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "wrong-accepted"
+      }
+    },
+    "R37": {
+      "line": "sc 3, inc - repeat x 6 (30)",
+      "rules": "flagged",
+      "rulesMsg": "I count 5 stitches, the pattern says 30. 20 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "20 sc blo (20)",
+        "fallback": "flagged",
+        "fallbackSyntax": "20 sc blo (20)"
+      }
+    },
+    "R38": {
+      "line": "sc 2, dec, sc 1 — repeat 6x (24)",
+      "rules": "flagged",
+      "rulesMsg": "I count 4 stitches, the pattern says 24. 25 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "30 sc 2, dec 2, sc 1 — repeat 6x (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "30 sc 2, dec 2, sc 1 — repeat 6x (24)"
+      }
+    },
+    "R39": {
+      "line": "Puff st in next st, sc in next 2 sts; rep from * around (18)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"rep from around puff st in next st\". If they matter, add \"=> …\" with short syntax. A part round: the 16 stitches it leaves unworked carry on into the next round.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "18 sc blo (18)",
+        "fallback": "flagged",
+        "fallbackSyntax": "18 sc blo (18)"
+      }
+    },
+    "R40": {
+      "line": "Popcorn in each st around (12)",
+      "rules": "flagged",
+      "rulesMsg": "Couldn't read this instruction. Add \"=> …\" with short syntax, e.g. \"=> 18 sc\".",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "12 sc blo (12)",
+        "fallback": "flagged",
+        "fallbackSyntax": "12 sc blo (12)"
+      }
+    },
+    "F01": {
+      "line": "Ch 1, turn, 2 sc in first st, sc across to last st, 2 sc in last st (12)",
+      "rules": "flagged",
+      "rulesMsg": "I count 11 stitches, the pattern says 12. Ran out of stitches 1×.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "11 sc blo (11)",
+        "fallback": "flagged",
+        "fallbackSyntax": "11 sc blo (11)"
+      }
+    },
+    "F02": {
+      "line": "Ch 1, turn. Sc2tog, sc in each st until last 2 sts, sc2tog (8)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "F03": {
+      "line": "Ch 2 (does not count as a st), turn, hdc in each st across (10)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "F04": {
+      "line": "Turn, chain 1, single crochet in the back loop of every stitch (10)",
+      "rules": "flagged",
+      "rulesMsg": "I count 1 stitches, the pattern says 10. 9 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "right",
+        "aloneSyntax": "10 sc blo (10)",
+        "fallback": "right",
+        "fallbackSyntax": "10 sc blo (10)"
+      }
+    },
+    "F05": {
+      "line": "Ch 1, turn, sl st across (10)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "F06": {
+      "line": "ch1 turn, sc in first 4, skip next 2 sts, sc in last 4 (8)",
+      "rules": "flagged",
+      "rulesMsg": "I count 5 stitches, the pattern says 8. 3 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "10 sc blo (10)",
+        "fallback": "flagged",
+        "fallbackSyntax": "10 sc blo (10)"
+      }
+    },
+    "F07": {
+      "line": "Ch 1, turn. Inc in first st, sc in each st to end (11)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "fallback": "right"
+      }
+    },
+    "F08": {
+      "line": "Ch 1, turn, *sc in next st, dc in next st* across (10)",
+      "rules": "flagged",
+      "rulesMsg": "I count 2 stitches, the pattern says 10. 8 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "10 sc blo (10)",
+        "fallback": "flagged",
+        "fallbackSyntax": "10 sc blo (10)"
+      }
+    },
+    "F09": {
+      "line": "Chain one and turn. Work a single crochet into each of the stitches of the row before. (10)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"st before\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "10 sc blo (10)",
+        "fallback": "flagged",
+        "fallbackSyntax": "10 sc blo (10)"
+      }
+    },
+    "F10": {
+      "line": "Ch 1, turn, sc in first 3 sts, hdc in next 4 sts, sc in last 3 sts (10)",
+      "rules": "flagged",
+      "rulesMsg": "I count 8 stitches, the pattern says 10. 2 stitch(es) of the previous row left unworked.",
+      "onnx-community/gemma-3-270m-it-ONNX:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "10 sc blo (10)",
+        "fallback": "flagged",
+        "fallbackSyntax": "10 sc blo (10)"
+      }
+    }
+  },
+  "models": {
+    "onnx-community/gemma-3-270m-it-ONNX:q4": {
+      "loadMs": 2395,
+      "calls": 46,
+      "msPerCall": 1691,
+      "fallback": {
+        "right": 27,
+        "wrongAccepted": 3,
+        "flagged": 20
+      },
+      "alone": {
+        "right": 1,
+        "wrongAccepted": 0,
+        "flagged": 20
+      }
+    }
+  }
+}

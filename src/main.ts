@@ -8,6 +8,7 @@ import { fabricThickness, type UserMaterials } from './geometry/sizing';
 import { CrochetView } from './render/scene';
 import type { Pattern } from './model/types';
 import { renderOutline } from './ui/outline';
+import { setupAi, HELP_CODES } from './ui/ai';
 import { importPdf, renderPage } from './pdf/extract';
 
 import ball from '../fixtures/ball.txt?raw';
@@ -145,10 +146,13 @@ function rebuild(force: boolean) {
   const diags: CmDiagnostic[] = pattern.diagnostics.map((d) => ({
     from: Math.min(d.src.from, text.length), to: Math.min(Math.max(d.src.to, d.src.from), text.length),
     severity: d.severity, message: d.message,
-    actions: d.readings?.map((r) => ({ name: d.readings!.length > 1 ? `Use ${r}` : 'Keep this reading', apply: () => pickReading(d.line, r) })),
+    actions: [
+      ...(d.readings?.map((r) => ({ name: d.readings!.length > 1 ? `Use ${r}` : 'Keep this reading', apply: () => pickReading(d.line, r) })) ?? []),
+      ...(ai?.isOn() && HELP_CODES.has(d.code) ? [{ name: 'Ask AI', apply: () => ai!.ask(d.line) }] : []),
+    ],
   }));
   editor.dispatch(setDiagnostics(editor.state, diags));
-  renderOutline($('outline'), $('outline-summary'), pattern, (line) => gotoLine(line), pickReading);
+  renderOutline($('outline'), $('outline-summary'), pattern, (line) => gotoLine(line), pickReading, ai?.isOn() ? (line) => ai!.ask(line) : undefined);
 
   const topology = JSON.stringify([pattern.pieces.map((p) => [p.name, p.quantity, p.rows.map((r) => [r.computedCount, r.yarnId, r.line])]), pattern.seams.length, user]);
   if (!force && topology === lastTopology) return;
@@ -190,6 +194,18 @@ view.onPick = (line) => {
   view.highlight(line);
 };
 void activeLineDeco;
+
+// ---------------------------------------------------------------- AI helper (optional, off by default, runs on-device)
+// eslint-disable-next-line prefer-const
+var ai: ReturnType<typeof setupAi> | undefined = setupAi({
+  text: () => editor.state.doc.toString(),
+  pattern: () => pattern,
+  replaceLine(line, text) {
+    const l = editor.state.doc.line(line + 1);
+    editor.dispatch({ changes: { from: l.from, to: l.to, insert: text } });
+  },
+  changed: () => rebuild(true),
+});
 
 // ---------------------------------------------------------------- picking a reading
 /** Write the chosen reading on the line as "=> short syntax", so the text stays the single source of truth. */

@@ -1,0 +1,578 @@
+{
+  "cases": 50,
+  "modellable": 48,
+  "rules": {
+    "right": 26,
+    "wrongAccepted": 3,
+    "flagged": 21
+  },
+  "perCase": {
+    "R01": {
+      "line": "1 sc in the first st, 2 sc in the next st, repeat this sequence 5 more times (18)",
+      "rules": "wrong-accepted",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(1 sc, inc) x5 (18)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": ""
+      }
+    },
+    "R02": {
+      "line": "[Sc in next 2 sts, 2 sc in next st] around. (24 sts)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "[sc, 2 sc] around, (24)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R03": {
+      "line": "Sc in next 3 sc, sc2tog; rep around - 24 sts",
+      "rules": "flagged",
+      "rulesMsg": "I count 25 stitches, the pattern says 24.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(72 sc, inc) x24 (30)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(72 sc, inc) x24 (30)"
+      }
+    },
+    "R04": {
+      "line": "Work 2 sc into every stitch (12)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "4 sc (12)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R05": {
+      "line": "Inc, sc 1. Repeat 6 times. (18)",
+      "rules": "right",
+      "rulesMsg": "\"repeat 6 times\" read as 6 times in total.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, sc 1, 6 inc, 4 sc) (18)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R06": {
+      "line": "sc in each stitch around for a total of 24 stitches",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"for 24 st\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, x24) (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(inc, x24) (24)"
+      }
+    },
+    "R07": {
+      "line": "Invisible decrease 6 times, evenly, sc in all other sts (12)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"other st\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(6 sc) x6 (12)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(6 sc) x6 (12)"
+      }
+    },
+    "R08": {
+      "line": "Single crochet four, then decrease. Repeat around. (25)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(sc, dec) x2 (25)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R09": {
+      "line": "*2 sc in next st, sc in next 3 sts* repeat 6 times (30)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(sc, inc) x6 (30)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R10": {
+      "line": "sc around in back loops (36)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 18) x9 (36)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R11": {
+      "line": "In FLO: sl st into each stitch around (18)",
+      "rules": "right",
+      "rulesMsg": "Ignored: \"in\".",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(slst, 18) (18)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R12": {
+      "line": "6 increases spread evenly around the round (18)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"spread around\". If they matter, add \"=> …\" with short syntax. A part round: the 6 stitches it leaves unworked carry on into the next round.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(6 inc) x3 (18)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(6 inc) x3 (18)"
+      }
+    },
+    "R13": {
+      "line": "hdc in each st around (24 hdc)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(hdc, 24) (24)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R14": {
+      "line": "Sc 7, inc 2, sc 7, inc 2 (22)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 2 sc) x2 (22)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R15": {
+      "line": "sc2tog around (15)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(sc2tog, 15) (15)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R16": {
+      "line": "Make 2 sc in each of the next 2 stitches, then sc in the next 2 stitches. Do this 3 times. (18)",
+      "rules": "right",
+      "rulesMsg": "\"repeat 3 times\" read as 3 times in total.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(2 sc, 2 sc) x3 (18)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R17": {
+      "line": "SC in the first 6 sts, DC in the next 12 sts, SC in the last 6 sts (24)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"6 st\". If they matter, add \"=> …\" with short syntax. A part round: the 5 stitches it leaves unworked carry on into the next round.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(6 sc), DC, (6 sc)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(6 sc), DC, (6 sc)"
+      }
+    },
+    "R18": {
+      "line": "sc 6, (sc, inc) 3 times, sc 6 (21)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(sc, inc) 3 times, sc 6 (21)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R19": {
+      "line": "2 sc in each st around = 12",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"12\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(2 sc in each of the next 2 stitches) (12)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(2 sc in each of the next 2 stitches) (12)"
+      }
+    },
+    "R20": {
+      "line": "Dec over the next two stitches, sc in the next 4 stitches, around (30)",
+      "rules": "flagged",
+      "rulesMsg": "I count 5 stitches, the pattern says 30. 30 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(28 sc) x2 (30)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(28 sc) x2 (30)"
+      }
+    },
+    "R21": {
+      "line": "Repeat (sc 2, inc) all the way around (24)",
+      "rules": "flagged",
+      "rulesMsg": "Couldn't read this instruction. Add \"=> …\" with short syntax, e.g. \"=> 18 sc\".",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 4) all the way around (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(inc, 4) all the way around (24)"
+      }
+    },
+    "R22": {
+      "line": "sc in back loop of each stitch (12)",
+      "rules": "wrong-accepted",
+      "rulesMsg": "A part round: the 11 stitches it leaves unworked carry on into the next round; ignored: \"st\".",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(sc, inc) x12 (12)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": ""
+      }
+    },
+    "R23": {
+      "line": "Sc in next 13 sts, dec, sc in next 13 sts, dec (28)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(28 sc) x2 (30)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R24": {
+      "line": "BLO: (sc 2, dec) x 6 (18)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(BLO: (sc 2, dec) x 6 (18))",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R25": {
+      "line": "*Sc in next st, hdc in next st, dc in next st; repeat from * 5 more times (18)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(sc, hdc, dc) x5 (18)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R26": {
+      "line": "Sc in each stitch, increasing in every other stitch (18)",
+      "rules": "flagged",
+      "rulesMsg": "I count 12 stitches, the pattern says 18.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(12 sc) x2 (18)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(12 sc) x2 (18)"
+      }
+    },
+    "R27": {
+      "line": "Sc in each st, decreasing 3 times evenly (15)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(15) sc in each of the next 15 stitches",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R28": {
+      "line": "Increase in every stitch around - 12 st",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(12 st) increase (6)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R29": {
+      "line": "sc in each of the next 34 sts, sc2tog (35)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 32) x35 (35)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R30": {
+      "line": "Single crochet in each stitch around but in the last stitch work 2 sc (25)",
+      "rules": "flagged",
+      "rulesMsg": "I count 27 stitches, the pattern says 25. Ran out of stitches 3×.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 26) x25 (24)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(inc, 26) x25 (24)"
+      }
+    },
+    "R31": {
+      "line": "Work 6 decreases evenly around (12)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(6 dec) x6 (12)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R32": {
+      "line": "Sc 2 tog all around (6)",
+      "rules": "flagged",
+      "rulesMsg": "I count 1 stitches, the pattern says 6. 11 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 6) x6 (6)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(inc, 6) x6 (6)"
+      }
+    },
+    "R33": {
+      "line": "Sc around, increasing 6 times evenly (36)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(inc, 4 sc) x36 (30)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R34": {
+      "line": "(Sc in next st, inc in next st, sc in next 2 st) x 6 (30)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(Sc, inc) x 6 (30)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R35": {
+      "line": "Sl st in next 3, sc in next 12, sl st in next 3 (18)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(slst, sc) x3 (18)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "R36": {
+      "line": "tr in next 6 sts, sc in remaining sts (12)",
+      "rules": "wrong-accepted",
+      "rulesMsg": "A part round: the 5 stitches it leaves unworked carry on into the next round; ignored: \"remaining st\".",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(tr, 6 sc) x2 (12)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": ""
+      }
+    },
+    "R37": {
+      "line": "sc 3, inc - repeat x 6 (30)",
+      "rules": "flagged",
+      "rulesMsg": "I count 5 stitches, the pattern says 30. 20 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(sc, inc) x6 (30)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": "(sc, inc) x6 (30)"
+      }
+    },
+    "R38": {
+      "line": "sc 2, dec, sc 1 — repeat 6x (24)",
+      "rules": "flagged",
+      "rulesMsg": "I count 4 stitches, the pattern says 24. 25 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(sc, dec, sc) x6 (24)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": "(sc, dec, sc) x6 (24)"
+      }
+    },
+    "R39": {
+      "line": "Puff st in next st, sc in next 2 sts; rep from * around (18)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"rep from around puff st in next st\". If they matter, add \"=> …\" with short syntax. A part round: the 16 stitches it leaves unworked carry on into the next round.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(Puff st, sc in next 2 sts, rep from => around puff st) around (18)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(Puff st, sc in next 2 sts, rep from => around puff st) around (18)"
+      }
+    },
+    "R40": {
+      "line": "Popcorn in each st around (12)",
+      "rules": "flagged",
+      "rulesMsg": "Couldn't read this instruction. Add \"=> …\" with short syntax, e.g. \"=> 18 sc\".",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "12 sc => … (12)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": "12 sc => … (12)"
+      }
+    },
+    "F01": {
+      "line": "Ch 1, turn, 2 sc in first st, sc across to last st, 2 sc in last st (12)",
+      "rules": "flagged",
+      "rulesMsg": "I count 11 stitches, the pattern says 12. Ran out of stitches 1×.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(Ch 1, turn, 2 sc in first st, sc across to last st, 2 sc in last st (12))",
+        "fallback": "flagged",
+        "fallbackSyntax": "(Ch 1, turn, 2 sc in first st, sc across to last st, 2 sc in last st (12))"
+      }
+    },
+    "F02": {
+      "line": "Ch 1, turn. Sc2tog, sc in each st until last 2 sts, sc2tog (8)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "right",
+        "aloneSyntax": "Ch 1, turn, sc2tog, sc in each st until last 2 sts, sc2tog (8)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "F03": {
+      "line": "Ch 2 (does not count as a st), turn, hdc in each st across (10)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "right",
+        "aloneSyntax": "(ch 2, turn, 10 hdc) (10)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "F04": {
+      "line": "Turn, chain 1, single crochet in the back loop of every stitch (10)",
+      "rules": "flagged",
+      "rulesMsg": "I count 1 stitches, the pattern says 10. 9 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "wrong-accepted",
+        "aloneSyntax": "(ch 1, turn, 10 sc) (10)",
+        "fallback": "wrong-accepted",
+        "fallbackSyntax": "(ch 1, turn, 10 sc) (10)"
+      }
+    },
+    "F05": {
+      "line": "Ch 1, turn, sl st across (10)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(Ch 1, turn, sl st, 10 sc) (10)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "F06": {
+      "line": "ch1 turn, sc in first 4, skip next 2 sts, sc in last 4 (8)",
+      "rules": "flagged",
+      "rulesMsg": "I count 5 stitches, the pattern says 8. 3 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(ch1, turn, sc in first 4, sc in last 4, skip next 2) (8)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(ch1, turn, sc in first 4, sc in last 4, skip next 2) (8)"
+      }
+    },
+    "F07": {
+      "line": "Ch 1, turn. Inc in first st, sc in each st to end (11)",
+      "rules": "right",
+      "rulesMsg": "",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "right",
+        "aloneSyntax": "Ch 1, turn, inc in first st, sc in each st to end (11)",
+        "fallback": "right",
+        "fallbackSyntax": ""
+      }
+    },
+    "F08": {
+      "line": "Ch 1, turn, *sc in next st, dc in next st* across (10)",
+      "rules": "flagged",
+      "rulesMsg": "I count 2 stitches, the pattern says 10. 8 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(Ch 1, turn, 10 sc in each of the next 10) (10)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(Ch 1, turn, 10 sc in each of the next 10) (10)"
+      }
+    },
+    "F09": {
+      "line": "Chain one and turn. Work a single crochet into each of the stitches of the row before. (10)",
+      "rules": "flagged",
+      "rulesMsg": "Skipped words I couldn't read: \"st before\". If they matter, add \"=> …\" with short syntax.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "right",
+        "aloneSyntax": "(ch 1, turn), 10 sc (10)",
+        "fallback": "right",
+        "fallbackSyntax": "(ch 1, turn), 10 sc (10)"
+      }
+    },
+    "F10": {
+      "line": "Ch 1, turn, sc in first 3 sts, hdc in next 4 sts, sc in last 3 sts (10)",
+      "rules": "flagged",
+      "rulesMsg": "I count 8 stitches, the pattern says 10. 2 stitch(es) of the previous row left unworked.",
+      "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+        "alone": "flagged",
+        "aloneSyntax": "(Ch 1, turn, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, ( (10)",
+        "fallback": "flagged",
+        "fallbackSyntax": "(Ch 1, turn, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, 10 sc, ( (10)"
+      }
+    }
+  },
+  "models": {
+    "onnx-community/Qwen2.5-0.5B-Instruct:q4": {
+      "loadMs": 35304,
+      "calls": 106,
+      "msPerCall": 2502,
+      "fallback": {
+        "right": 27,
+        "wrongAccepted": 7,
+        "flagged": 16
+      },
+      "alone": {
+        "right": 4,
+        "wrongAccepted": 10,
+        "flagged": 36
+      }
+    }
+  }
+}

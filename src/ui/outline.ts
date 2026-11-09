@@ -3,7 +3,8 @@ import type { Pattern } from '../model/types';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /** Pieces → sections → row runs with counts, plus the list of lines that need a look. */
-export function renderOutline(el: HTMLElement, summary: HTMLElement, p: Pattern, goto: (line: number) => void, pick?: (line: number, reading: string) => void) {
+export function renderOutline(el: HTMLElement, summary: HTMLElement, p: Pattern, goto: (line: number) => void, pick?: (line: number, reading: string) => void, askAi?: (line: number) => void) {
+  const HELP = new Set(['unknown-token', 'count-mismatch', 'ambiguous']);
   const parts: string[] = [];
   let rowsTotal = 0, sts = 0;
   for (const pc of p.pieces) {
@@ -40,11 +41,12 @@ export function renderOutline(el: HTMLElement, summary: HTMLElement, p: Pattern,
   const issues = p.diagnostics.filter((d) => d.severity !== 'info');
   if (p.diagnostics.length) {
     parts.push(`<div class="piece"><h3>Notes from the parser</h3><ul class="diag-list">`);
-    for (const d of p.diagnostics) parts.push(`<li data-line="${d.line}"><span class="dot ${d.severity === 'error' ? 'unreadable' : d.severity === 'warning' ? 'ambiguous' : 'assumption'}"></span><span>line ${d.line + 1}: ${esc(d.message)}</span>${pick && d.readings && d.readings.length > 1 ? d.readings.map((r, i) => `<button class="pick" data-line-pick="${d.line}" data-reading="${i}" title="Use this reading">${esc(r)}</button>`).join('') : ''}</li>`);
+    for (const d of p.diagnostics) parts.push(`<li data-line="${d.line}"><span class="dot ${d.severity === 'error' ? 'unreadable' : d.severity === 'warning' ? 'ambiguous' : 'assumption'}"></span><span>line ${d.line + 1}: ${esc(d.message)}</span>${pick && d.readings && d.readings.length > 1 ? d.readings.map((r, i) => `<button class="pick" data-line-pick="${d.line}" data-reading="${i}" title="Use this reading">${esc(r)}</button>`).join('') : ''}${askAi && HELP.has(d.code) ? `<button class="pick" data-ask="${d.line}" title="Ask the on-device AI to suggest short syntax for this line">Ask AI</button>` : ''}</li>`);
     parts.push('</ul></div>');
   }
   el.innerHTML = parts.join('') || '<p class="muted">Type a round like <code>Rnd 1: 6 sc in MR (6)</code> to start.</p>';
   el.querySelectorAll<HTMLElement>('[data-line]').forEach((li) => li.addEventListener('click', () => goto(+li.dataset.line!)));
+  el.querySelectorAll<HTMLElement>('[data-ask]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); askAi?.(+b.dataset.ask!); }));
   el.querySelectorAll<HTMLElement>('[data-line-pick]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     const d = p.diagnostics.find((x) => x.line === +b.dataset.linePick! && x.readings);
