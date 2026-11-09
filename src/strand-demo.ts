@@ -1,3 +1,4 @@
+import '@fontsource-variable/nunito';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { YARN_LOOKS } from './render/textures';
