@@ -238,7 +238,7 @@ export class Solver {
         const id = r[j];
         const target = [c[0] + u[0] * tx + w[0] * ty, c[1] + u[1] * tx + w[1] * ty, c[2] + u[2] * tx + w[2] * ty];
         const cur = [c[0] + vs[j][0], c[1] + vs[j][1], c[2] + vs[j][2]];
-        for (let q = 0; q < 3; q++) p[id * 3 + q] += (target[q] - cur[q]) * 0.2;
+        for (let q = 0; q < 3; q++) p[id * 3 + q] += (target[q] - cur[q]) * 0.45;
       }
     }
   }

@@ -31,6 +31,8 @@ export class CrochetView {
   private baseColors: Float32Array = new Float32Array();
   private highlightLine = -1;
   private needsFit = true;
+  /** The viewer has turned or zoomed since the view was last fitted. */
+  private moved = false;
   onPick: ((line: number) => void) | null = null;
   onSize: ((mm: [number, number, number]) => void) | null = null;
 
@@ -43,6 +45,7 @@ export class CrochetView {
     host.appendChild(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.addEventListener('start', () => (this.moved = true));
     this.scene.add(new THREE.HemisphereLight(0xfff6ee, 0x6b6460, 1.6));
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(300, 500, 600);
@@ -74,6 +77,12 @@ export class CrochetView {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** The shape has settled: frame it again, unless the viewer has moved the camera meanwhile (the
+   *  first frame is framed before the solver has moved the stitches into place). */
+  settled() {
+    if (!this.moved) this.fit();
   }
 
   resetView() {
@@ -504,12 +513,16 @@ export class CrochetView {
     const c = bb.getCenter(new THREE.Vector3());
     const r = bb.getSize(new THREE.Vector3()).length() / 2 || 50;
     const d = r / Math.sin((this.camera.fov * Math.PI) / 360);
-    this.camera.position.set(c.x + d * 0.25, c.y + d * 0.25, c.z + d * 0.95);
+    // something lying flat (a coaster, a granny square) is shown from above, not edge-on
+    const sz = bb.getSize(new THREE.Vector3());
+    if (sz.y < 0.25 * Math.max(sz.x, sz.z)) this.camera.position.set(c.x + d * 0.1, c.y + d * 0.9, c.z + d * 0.42);
+    else this.camera.position.set(c.x + d * 0.25, c.y + d * 0.25, c.z + d * 0.95);
     this.camera.near = d / 100;
     this.camera.far = d * 20;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(c);
     this.needsFit = false;
+    this.moved = false;
   }
 
   private pick(e: PointerEvent) {

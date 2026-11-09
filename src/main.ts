@@ -93,6 +93,7 @@ worker.onmessage = (e: MessageEvent<{ type: 'frame'; job: number; pos: Float32Ar
   view.update(e.data.pos);
   if (e.data.done) {
     $('solving').hidden = true;
+    view.settled();
     rememberPositions();
   }
 };

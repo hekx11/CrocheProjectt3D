@@ -163,6 +163,20 @@ describe('motifs and cups worked in joined rounds', () => {
     expect(radius[2] - radius[0]).toBeGreaterThan(2 * h * 1.2);
   });
 
+  it('a granny square blocks to a square: four corners stick out further than the middle of each side', () => {
+    const { model, pos } = solve(granny);
+    const pi = model.graph.instances[0];
+    const last = pi.rows[pi.rows.length - 1];
+    expect(last.corners?.length).toBe(4);
+    const c = [0, 2].map((k) => pi.nodeIds.reduce((a, id) => a + pos[id * 3 + k], 0) / pi.nodeIds.length);
+    const rad = (j: number) => Math.hypot(pos[last.nodes[j] * 3] - c[0], pos[last.nodes[j] * 3 + 2] - c[1]);
+    const cs = last.corners!;
+    const corner = cs.reduce((a, j) => a + rad(j), 0) / 4;
+    const mid = cs.reduce((a, j, i) => a + rad(Math.floor((j + (cs[(i + 1) % 4] + (i === 3 ? last.nodes.length : 0))) / 2) % last.nodes.length), 0) / 4;
+    // a square's corners are √2 ≈ 1.41× as far out as the middle of its sides; a circle would be 1
+    expect(corner / mid).toBeGreaterThan(1.2);
+  });
+
   it('a basket (rounds that stop increasing) stands up instead of lying flat', () => {
     const basket = 'Rnd 1: Ch 3 (does not count as a st), 12 dc in 3rd ch from hook, sl st to first dc to join. (12)\nRnd 2: Ch 2, 2 dc in each st around, sl st to join. (24)\nRnd 3: Ch 1, sc in the back loop of each st around, sl st to join. (24)\nRnds 4-12: Ch 1, sc in each st around, sl st to join. (24)';
     const { ext, model } = solve(basket);

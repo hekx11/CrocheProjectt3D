@@ -23,12 +23,33 @@ const STRETCH_GIVE = 0.3;
  * A motif with the same number of corners (3 to 8) on every round that has any (a granny square, a
  * hexagon) is blocked to that polygon, not to a circle.
  */
-function motifCorners(rows: { corners?: number[] }[]): (number[] | undefined)[] | undefined {
+function motifCorners(rows: { corners?: number[]; anchors: number[]; nodes: number[] }[]): (number[] | undefined)[] | undefined {
   const ks = new Set(rows.filter((r) => r.corners).map((r) => r.corners!.length));
-  if (ks.size !== 1 || rows.filter((r) => r.corners).length < 1) return undefined;
+  if (ks.size !== 1) return undefined;
   const k = [...ks][0];
   if (k < 3 || k > 8) return undefined;
-  return rows.map((r) => r.corners);
+  const out: (number[] | undefined)[] = rows.map((r) => r.corners);
+  // rounds without corner groups of their own (the first round into the ring, a plain border) take
+  // their corners from the round worked into them, or from the round they are worked into
+  for (let pass = 0; pass < rows.length; pass++) {
+    let changed = false;
+    for (let i = 0; i < rows.length; i++) {
+      if (out[i]) continue;
+      const above = out[i + 1];
+      if (above) {
+        const cs = [...new Set(above.map((c) => rows[i + 1].anchors[c]).filter((a) => a >= 0))].sort((a, b) => a - b);
+        if (cs.length === k) { out[i] = cs; changed = true; continue; }
+      }
+      const below = out[i - 1];
+      if (below) {
+        const A = rows[i].anchors;
+        const cs = below.map((c) => { let best = 0, d = Infinity; A.forEach((a, j) => { if (a >= 0 && Math.abs(a - c) < d) { d = Math.abs(a - c); best = j; } }); return best; });
+        if (new Set(cs).size === k) { out[i] = cs.sort((a, b) => a - b); changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
+  return out;
 }
 
 /** Parse result → sized stitch graph → seeded positions → solver input. */
