@@ -156,9 +156,20 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
   for (const pi of graph.instances) for (const id of pi.baseChains ?? []) stuffedNode[id] = 0;
   // a stalk is too narrow to take stuffing: it keeps its length instead of bunching up
   for (const q of stalks) for (const id of q.nodes) stuffedNode[id] = 0;
+  // a cluster worked into a chain space (a granny square's 3 dc) stands side by side along the
+  // space, not all on one point: the farther ones reach the space from a little way along it, so
+  // their tie to the one point that stands for the space may be longer than the stitch is tall
+  // (held to one length, the cluster's tops sit on an arc round the space and the sides scallop)
+  const spaceKids = new Map<number, number>();
+  for (const e of graph.edges) if (e.kind === 'into' && graph.nodes[e.a].type === 'ch') spaceKids.set(e.a, (spaceKids.get(e.a) ?? 0) + 1);
   const edges = new Float32Array(all.length * 5);
   const give = new Float32Array(all.length);
   all.forEach((e, i) => {
+    if (e.kind === 'into' && (spaceKids.get(e.a) ?? 0) >= 3 && !stuffedNode[e.b]) {
+      give[i] = 1;
+      edges.set([e.a, e.b, e.rest * 1.6, STIFF.into, 1 / 1.6], i * 5);
+      return;
+    }
     // stuffed fabric: the yarn gives a little under pressure instead of staying fully stretched
     give[i] = (e.kind === 'yarn' || e.kind === 'into') && stuffedNode[e.a] && stuffedNode[e.b] ? STRETCH_GIVE : 1;
     const slack = (e.kind === 'yarn' || e.kind === 'into') && stuffedNode[e.a] && stuffedNode[e.b] ? 0.7 : 1;

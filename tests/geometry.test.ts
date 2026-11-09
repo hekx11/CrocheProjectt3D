@@ -194,6 +194,13 @@ describe('motifs and cups worked in joined rounds', () => {
     }
   });
 
+  it('a granny square opens up to its real size: clusters stand side by side along their space', () => {
+    const { ext, model } = solve(granny);
+    // three rounds of dc out from a small ring, each round a dc tall (~1.9 sc) on every side, and
+    // a little more as the clusters stand apart round the corners: about 4" in worsted
+    expect(Math.min(ext[0], ext[2])).toBeGreaterThan(2 * 3 * 1.9 * model.sizing.h * 1.15);
+  });
+
   it('leaves the chain spaces of a granny square open, but not the stitches of a solid circle', () => {
     const g = buildModel(parsePattern(granny), { tension: 'normal' });
     expect(g.holes.some((h) => h)).toBe(true);
