@@ -316,3 +316,16 @@ Flatten the upper parts of the arms and close them. Then sew them to each side o
     expect(y(top) - y(tip)).toBeGreaterThan(model.sizing.h * 2);
   });
 });
+
+describe('seeding a tall piece', () => {
+  it('stacks each stitch over the one it is worked into: round 30 is not turned against round 5', () => {
+    const model = buildModel(parsePattern('Tube\nRnd 1: 6 sc in a magic ring [6]\nRnd 2: inc in all 6 st [12]\nRnd 3: (sc, inc) repeat 6 times [18]\nRnd 4: (2 sc, inc) repeat 6 times [24]\nRnd 5 - 30: sc in all 24 st [24]\n'), { tension: 'normal' });
+    const p = model.solverInput.pos;
+    const rows = model.graph.instances[0].rows;
+    const ang = (row: number) => { const id = rows.find((r) => r.row === row)!.nodes[0]; return Math.atan2(p[id * 3 + 2], p[id * 3]); };
+    let d = ang(30) - ang(5);
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    // stitch 0 of every plain round is worked into stitch 0 of the round below
+    expect(Math.abs(d)).toBeLessThan((2 * Math.PI) / 24);
+  });
+});

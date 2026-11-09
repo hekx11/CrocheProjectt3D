@@ -72,7 +72,9 @@ function seedRounds(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle:
     let phase = 0;
     if (prevAngles.length && row.anchors.some((a) => a >= 0)) {
       const diffs: number[] = [];
-      row.anchors.forEach((a, j) => { if (a >= 0 && prevAngles[a] !== undefined) diffs.push(prevAngles[a] - (TAU * j) / n); });
+      // (each stitch over the one it is worked into: both measured at their middles, or every round
+      // turns half a stitch further than the last and a tall piece is seeded twisted)
+      row.anchors.forEach((a, j) => { if (a >= 0 && prevAngles[a] !== undefined) diffs.push(prevAngles[a] - (TAU * (j + 0.5)) / n); });
       phase = circMean(diffs);
     }
     const angles: number[] = [];
@@ -383,11 +385,24 @@ function placeBase(g: StitchGraph, pi: PieceInstance, pos: Float32Array, angle: 
       }
       moved.push(leg);
     }
-    // the chains between the legs sit under the stitches worked into them
-    for (const id of pi.baseChains ?? []) {
-      const k = base.nodes.indexOf(id);
-      const over = first.nodes.filter((_, j) => first.anchors[j] === k);
-      pos.set(add(over.length ? centroid(pos, over) : A, mul(down, w * 0.6)), id * 3);
+    // the chains between the legs run straight across the gap, from the leg before them to the leg
+    // after (the crotch): left on one point they spread out in any direction once solved and the
+    // body above twists with them
+    const chainSet = new Set(pi.baseChains ?? []);
+    const B = base.nodes;
+    for (let k = 0; k < B.length; k++) {
+      if (!chainSet.has(B[k]) || (k > 0 && chainSet.has(B[k - 1]))) continue;
+      let e = k;
+      while (e + 1 < B.length && chainSet.has(B[e + 1])) e++;
+      const before = B[(k - 1 + B.length) % B.length], after = B[(e + 1) % B.length];
+      const n = e - k + 1;
+      if (chainSet.has(before) || chainSet.has(after)) {
+        for (let i = k; i <= e; i++) pos.set(add(A, mul(down, w * 0.6)), B[i] * 3);
+      } else {
+        const p0 = get(pos, before), p1 = get(pos, after);
+        for (let i = 0; i < n; i++) pos.set(add(p0, mul(sub(p1, p0), (i + 1) / (n + 1))), B[k + i] * 3);
+      }
+      k = e;
     }
     // stand on the legs side by side (left and right), not one behind the other
     if (legs.length === 2) {

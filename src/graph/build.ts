@@ -110,10 +110,14 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
       if (piece.base) {
         // worked into other pieces: their rows (already built) and any chains between them
         let chain: number[] = [];
+        // a chain between two pieces is made from the one and joined into the other ("ch 6, insert
+        // hook into leg 1"): tied to both, it spans the gap between them instead of floating
+        let openChain: number[] | null = null;
         for (const part of piece.base) {
           if (part.kind === 'ch') {
             if (part.back) { prevWork.push(...[...chain].reverse()); continue; }
             chain = [];
+            const before = prevWork[prevWork.length - 1];
             for (let i = 0; i < part.n; i++) {
               const id = add({ key: `${piece.name}:${inst}:base:${i}`, piece: piece.id, inst, row: 0, idx: i, u: i, type: 'ch', loop: 'both', w: sz.w, h: sz.h * 0.5, color: firstColor, line: piece.rows[0]?.line ?? -1, virtual: false });
               if (lastYarnNode >= 0) edges.push({ a: lastYarnNode, b: id, kind: 'yarn', rest: sz.w });
@@ -121,12 +125,21 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
               chain.push(id);
               (pi.baseChains ??= []).push(id);
             }
+            if (before !== undefined && chain.length) edges.push({ a: before, b: chain[0], kind: 'yarn', rest: sz.w });
+            // pulled taut across the gap by the stitches worked along both its sides: straight
+            if (chain.length >= 3) edges.push({ a: chain[0], b: chain[chain.length - 1], kind: 'join', rest: sz.w * (chain.length - 1) });
+            openChain = chain;
             prevWork.push(...chain);
             continue;
           }
           const src = instances.find((q) => q.piece.id === part.piece && q.inst === Math.min(part.inst, q.piece.quantity - 1) && (part.inst < q.piece.quantity || q.inst === inst));
           const r = src?.rows.find((q) => q.row === part.row);
-          if (r) prevWork.push(...(src!.piece.construction === 'rows' ? [...r.nodes].reverse() : r.nodes));
+          if (r) {
+            const nodesIn = src!.piece.construction === 'rows' ? [...r.nodes].reverse() : r.nodes;
+            if (openChain?.length && nodesIn.length) edges.push({ a: openChain[openChain.length - 1], b: nodesIn[0], kind: 'yarn', rest: sz.w });
+            openChain = null;
+            prevWork.push(...nodesIn);
+          }
         }
         prevRow = { piece: piece.id, inst, row: 0, nodes: prevWork, anchors: prevWork.map(() => -1), closed: true, loop: 'both', line: -1 };
         pi.baseRow = prevRow;
