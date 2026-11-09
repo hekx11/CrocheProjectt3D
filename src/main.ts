@@ -22,9 +22,11 @@ import ukBall from '../fixtures/uk-ball.txt?raw';
 import granny from '../fixtures/granny-square.txt?raw';
 import basket from '../fixtures/basket.txt?raw';
 import cat from '../fixtures/sleepy-cat.txt?raw';
+import littleBear from '../fixtures/little-bear.txt?raw';
 
 const EXAMPLES: Record<string, string> = {
   'Bear head (several pieces)': bear,
+  'Little bear (arms and ears sewn on)': littleBear,
   'Ball': ball,
   'Coaster (flat rows)': coaster,
   'Flower (joined rounds)': flower,
@@ -71,24 +73,7 @@ function readMaterialsForm() {
     scHeightMm: num('m-h'),
   };
   store.set('crochet3d.materials', JSON.stringify(user));
-  // ---------------------------------------------------------------- guided tour
-const DOT = (k: string, t: string) => `<span><i class="dot ${k}"></i>${t}</span>`;
-function tour() {
-  toggleMaterials(false);
-  startTour([
-    { title: 'See your crochet before you make it', body: '<p>Write or open a crochet pattern and watch it take shape in 3D, with the stitch counts checked and the finished size worked out for you.</p><p class="muted small">The tour takes about a minute.</p>' },
-    { target: '.pane-editor', before: () => setTab('editor'), title: 'Your pattern goes here', body: '<p>Type it or paste it just as it is written in the pattern, one round or row per line:</p><span class="eg"><b>Rnd 2:</b> inc in each st around (12)</span><p class="muted small">The usual abbreviations work (sc, inc, dec, hdc, dc, ch, sl st, MR…), in US or UK terms. Notes like “stuff the head” or “sew the ears to the head” are understood too.</p>' },
-    { target: '.actions', title: 'Already have a pattern?', body: '<p><b>Open a pattern</b> reads a PDF or a text file. It stays on your device, nothing is uploaded.</p><p>Not sure where to start? <b>Try an example</b> and change a number to see what happens.</p>' },
-    { target: '.pane-view', before: () => setTab('view'), title: 'Watch it take shape', body: '<p>The model follows along as you type. Drag to turn it and scroll or pinch to zoom.</p><p>Click any stitch on the model to jump to the line it comes from.</p>' },
-    { target: '.outline', before: () => { setTab('editor'); ($('outline').parentElement as HTMLDetailsElement).open = true; }, title: 'Your stitch counts, checked', body: `<p>Every round is counted for you and compared with the number at the end of its line.</p><div class="dots-row">${DOT('ok', 'the count adds up')}${DOT('ambiguous', 'worth a second look')}${DOT('unreadable', 'we could not read this line')}</div><p class="muted small">Click a round to find it in your pattern.</p>` },
-    { target: '#btn-materials', title: 'Make it true to size', body: '<p>Under <b>Yarn &amp; hook</b>, say which yarn and hook you are using and how tightly you crochet. The finished size updates, and you can try out your own colours.</p><p class="muted small">You can replay this tour any time with “How it works”.</p>' },
-  ], () => store.set('crochet3d.tour', 'seen'));
-}
-$('btn-help').addEventListener('click', tour);
-
-rebuild(true);
-// first visit: show people around (not for ?still screenshots)
-if (!STILL && !store.get('crochet3d.tour')) tour();
+  rebuild(true);
 }
 syncMaterialsForm();
 for (const id of ['m-tension', 'm-hook', 'm-weight', 'm-fiber', 'm-w', 'm-h']) $(id).addEventListener('change', readMaterialsForm);
@@ -296,24 +281,7 @@ function setText(text: string) {
   lastPos = null;
   model = null;
   view.resetView();
-  // ---------------------------------------------------------------- guided tour
-const DOT = (k: string, t: string) => `<span><i class="dot ${k}"></i>${t}</span>`;
-function tour() {
-  toggleMaterials(false);
-  startTour([
-    { title: 'See your crochet before you make it', body: '<p>Write or open a crochet pattern and watch it take shape in 3D, with the stitch counts checked and the finished size worked out for you.</p><p class="muted small">The tour takes about a minute.</p>' },
-    { target: '.pane-editor', before: () => setTab('editor'), title: 'Your pattern goes here', body: '<p>Type it or paste it just as it is written in the pattern, one round or row per line:</p><span class="eg"><b>Rnd 2:</b> inc in each st around (12)</span><p class="muted small">The usual abbreviations work (sc, inc, dec, hdc, dc, ch, sl st, MR…), in US or UK terms. Notes like “stuff the head” or “sew the ears to the head” are understood too.</p>' },
-    { target: '.actions', title: 'Already have a pattern?', body: '<p><b>Open a pattern</b> reads a PDF or a text file. It stays on your device, nothing is uploaded.</p><p>Not sure where to start? <b>Try an example</b> and change a number to see what happens.</p>' },
-    { target: '.pane-view', before: () => setTab('view'), title: 'Watch it take shape', body: '<p>The model follows along as you type. Drag to turn it and scroll or pinch to zoom.</p><p>Click any stitch on the model to jump to the line it comes from.</p>' },
-    { target: '.outline', before: () => { setTab('editor'); ($('outline').parentElement as HTMLDetailsElement).open = true; }, title: 'Your stitch counts, checked', body: `<p>Every round is counted for you and compared with the number at the end of its line.</p><div class="dots-row">${DOT('ok', 'the count adds up')}${DOT('ambiguous', 'worth a second look')}${DOT('unreadable', 'we could not read this line')}</div><p class="muted small">Click a round to find it in your pattern.</p>` },
-    { target: '#btn-materials', title: 'Make it true to size', body: '<p>Under <b>Yarn &amp; hook</b>, say which yarn and hook you are using and how tightly you crochet. The finished size updates, and you can try out your own colours.</p><p class="muted small">You can replay this tour any time with “How it works”.</p>' },
-  ], () => store.set('crochet3d.tour', 'seen'));
-}
-$('btn-help').addEventListener('click', tour);
-
-rebuild(true);
-// first visit: show people around (not for ?still screenshots)
-if (!STILL && !store.get('crochet3d.tour')) tour();
+  rebuild(true);
   view.resetView();
 }
 $('btn-reset').addEventListener('click', () => view.resetView());
@@ -366,6 +334,17 @@ function setTab(tab: 'editor' | 'view') {
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.getAttribute('data-tab') as any)));
 
+// ---------------------------------------------------------------- writing guide
+const guide = $('guide') as HTMLDialogElement;
+$('btn-guide').addEventListener('click', () => { guide.returnValue = ''; guide.showModal(); guide.scrollTop = 0; });
+guide.addEventListener('click', (e) => { if (e.target === guide) guide.close(); }); // click outside the sheet
+guide.addEventListener('close', () => {
+  if (guide.returnValue !== 'example') return;
+  const mine = editor.state.doc.toString().trim();
+  const untouched = !mine || Object.values(EXAMPLES).some((t) => t.trim() === mine);
+  if (untouched || confirm('Load the Little bear example? It replaces the pattern you have open.')) setText(littleBear);
+});
+
 // ---------------------------------------------------------------- guided tour
 const DOT = (k: string, t: string) => `<span><i class="dot ${k}"></i>${t}</span>`;
 function tour() {
@@ -373,6 +352,7 @@ function tour() {
   startTour([
     { title: 'See your crochet before you make it', body: '<p>Write or open a crochet pattern and watch it take shape in 3D, with the stitch counts checked and the finished size worked out for you.</p><p class="muted small">The tour takes about a minute.</p>' },
     { target: '.pane-editor', before: () => setTab('editor'), title: 'Your pattern goes here', body: '<p>Type it or paste it just as it is written in the pattern, one round or row per line:</p><span class="eg"><b>Rnd 2:</b> inc in each st around (12)</span><p class="muted small">The usual abbreviations work (sc, inc, dec, hdc, dc, ch, sl st, MR…), in US or UK terms. Notes like “stuff the head” or “sew the ears to the head” are understood too.</p>' },
+    { target: '#btn-guide', before: () => setTab('editor'), title: 'Writing your own?', body: '<p><b>Writing tips</b> shows how to set a pattern out, and what to write so parts are sewn on in the right place:</p><span class="eg">Sew the arms to the sides of the body <b>between Rnds 9 and 11</b>.</span>' },
     { target: '.actions', title: 'Already have a pattern?', body: '<p><b>Open a pattern</b> reads a PDF or a text file. It stays on your device, nothing is uploaded.</p><p>Not sure where to start? <b>Try an example</b> and change a number to see what happens.</p>' },
     { target: '.pane-view', before: () => setTab('view'), title: 'Watch it take shape', body: '<p>The model follows along as you type. Drag to turn it and scroll or pinch to zoom.</p><p>Click any stitch on the model to jump to the line it comes from.</p>' },
     { target: '.outline', before: () => { setTab('editor'); ($('outline').parentElement as HTMLDetailsElement).open = true; }, title: 'Your stitch counts, checked', body: `<p>Every round is counted for you and compared with the number at the end of its line.</p><div class="dots-row">${DOT('ok', 'the count adds up')}${DOT('ambiguous', 'worth a second look')}${DOT('unreadable', 'we could not read this line')}</div><p class="muted small">Click a round to find it in your pattern.</p>` },

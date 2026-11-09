@@ -34,8 +34,11 @@
     <main class="layout" data-active="editor">
       <section class="pane pane-editor" aria-label="Your pattern">
         <div class="pane-head">
-          <h2>Your pattern</h2>
-          <p class="muted small">Type or paste it just as it is written. The 3D view follows along.</p>
+          <div>
+            <h2>Your pattern</h2>
+            <p class="muted small">Type or paste it just as it is written. The 3D view follows along.</p>
+          </div>
+          <button id="btn-guide" class="btn soft compact" title="How to write your own pattern, including how to sew parts together"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10.5a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3Zm0 12.5a3 3 0 0 1 3-3h10.5M9 8.5h6"/></svg><span>Writing tips</span></button>
         </div>
         <div id="editor" class="editor"></div>
         <details class="outline" open>
@@ -111,6 +114,55 @@
           <button value="cancel" class="btn soft">Cancel</button>
           <button id="pdf-use" value="use" class="btn primary">Use this pattern</button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="guide" class="pdf-dialog guide" aria-labelledby="guide-title">
+      <form method="dialog">
+        <div class="guide-head">
+          <h2 id="guide-title">Writing your own pattern</h2>
+          <button class="btn soft compact" value="close" aria-label="Close">Close</button>
+        </div>
+        <p class="muted">Write it the way patterns are usually written. These few habits help the 3D view get it right.</p>
+
+        <section>
+          <h3>1. Give each part a name</h3>
+          <p>Put the name on a line of its own, before its rounds. Add <b>(make 2)</b> for pairs.</p>
+          <pre class="eg">BODY
+ARMS (make 2)</pre>
+        </section>
+
+        <section>
+          <h3>2. One round or row per line</h3>
+          <p>Start with the round number and end with the stitch count in brackets. The count is checked for you.</p>
+          <pre class="eg"><b>Rnd 3:</b> (sc, inc) x6 (18)
+<b>Rnds 5-12:</b> sc around (24)</pre>
+        </section>
+
+        <section>
+          <h3>3. Say how each part is finished</h3>
+          <pre class="eg">Stuff the body firmly.
+Do not stuff. Flatten the ears.
+Fasten off, leaving a long tail for sewing.</pre>
+        </section>
+
+        <section class="guide-sew">
+          <h3>4. Sewing parts together</h3>
+          <p>Write one sentence, right after the part you are sewing on. It needs four things:</p>
+          <p class="anatomy">Sew the <mark class="k1">arms</mark> to the <mark class="k3">sides</mark> of the <mark class="k2">body</mark> <mark class="k4">between Rnds 9 and 11</mark>.</p>
+          <ul class="keys">
+            <li><mark class="k1">Which part</mark> Use the name from its heading (arms).</li>
+            <li><mark class="k2">Sewn to what</mark> The name of the other part (body).</li>
+            <li><mark class="k3">Which side</mark> Use one of: top, sides, front, back, bottom.</li>
+            <li><mark class="k4">Which rounds</mark> “between Rnds 9 and 11” or “at Rnd 10”. Count the rounds on the part you are sewing <i>onto</i>, here the body.</li>
+          </ul>
+          <p>For a pair, you can also say how far apart they sit: add <b>about 8 sts apart</b>.</p>
+          <pre class="eg">Sew the ears to the top of the head between Rnds 3 and 6, about 8 sts apart.
+Sew the muzzle to the front of the head between Rnds 8 and 11.
+Sew the tail to the back of the body at Rnd 6.</pre>
+          <p class="muted small">If you leave out the side or the rounds, the part is placed at a best guess and a blue dot in Pattern check tells you so. The same works for eyes: “Insert safety eyes between Rnds 6 and 7, 5 sts apart.”</p>
+          <button id="guide-example" class="btn primary" value="example">Show me: load the Little bear example</button>
+        </section>
       </form>
     </dialog>
 

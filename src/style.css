@@ -75,7 +75,8 @@ select, input[type='number'] { background: var(--panel); border: 1px solid var(-
 .layout { flex: 1; display: grid; grid-template-columns: minmax(360px, 40%) 1fr; gap: 14px; padding: 10px 18px 18px; min-height: 0; }
 .pane { min-height: 0; position: relative; border-radius: var(--radius); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
 .pane-editor { display: flex; flex-direction: column; background: var(--panel); }
-.pane-head { padding: 14px 20px 10px; border-bottom: 1px dashed var(--line); }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px 10px; border-bottom: 1px dashed var(--line); }
+.btn.compact { min-height: 34px; padding: 5px 12px; font-size: 14px; }
 .pane-head h2 { margin: 0; font-size: 19px; }
 .pane-head p { margin: 2px 0 0; }
 
@@ -176,7 +177,26 @@ select, input[type='number'] { background: var(--panel); border: 1px solid var(-
 .warnings { margin: 0 0 8px; padding: 0; list-style: none; font-size: 13.5px; }
 .warnings li { background: color-mix(in srgb, var(--warn) 16%, transparent); border-radius: 10px; padding: 6px 10px; margin-bottom: 4px; }
 
+/* writing guide */
+.guide { width: min(680px, 96vw); max-height: 90vh; }
+.guide-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.guide h2 { font-size: 24px; }
+.guide h3 { margin: 18px 0 4px; font-size: 18px; }
+.guide p { margin: 6px 0; }
+.guide .eg { display: block; margin: 8px 0; padding: 10px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); font: 600 14.5px/1.7 var(--font); white-space: pre-wrap; }
+.guide .eg b { color: var(--accent); font-weight: 800; }
+.guide-sew { margin-top: 18px; padding: 2px 16px 16px; border-radius: 16px; background: var(--accent-soft); }
+.guide-sew .eg { background: var(--panel); }
+.anatomy { font-size: 18px; font-weight: 700; line-height: 2; padding: 6px 14px; border-radius: 12px; background: var(--panel); }
+.guide mark { color: inherit; border-radius: 7px; padding: 2px 7px; font-weight: 800; white-space: nowrap; }
+.k1 { background: color-mix(in srgb, var(--info) 28%, transparent); } .k2 { background: color-mix(in srgb, var(--ok) 28%, transparent); }
+.k3 { background: color-mix(in srgb, var(--warn) 32%, transparent); } .k4 { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.keys { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.keys mark { margin-right: 6px; }
+.guide-sew .btn { margin-top: 8px; white-space: normal; text-align: left; }
+
 /* guided tour */
+.tour [hidden] { display: none; }
 .tour { position: fixed; inset: 0; z-index: 50; }
 .tour-spot { position: fixed; border-radius: 20px; box-shadow: 0 0 0 200vmax rgba(35, 22, 20, .58); outline: 3px solid var(--accent); outline-offset: 0; transition: all .28s ease; pointer-events: none; }
 .tour-spot.none { left: 50%; top: 50%; width: 0; height: 0; outline: 0; }
@@ -188,7 +208,7 @@ select, input[type='number'] { background: var(--panel); border: 1px solid var(-
 .tour-card .eg b { color: var(--accent); font-weight: 800; }
 .tour-card .dots-row { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
 .tour-card .dots-row span { display: flex; gap: 8px; align-items: baseline; }
-.tour-nav { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.tour-nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .tour-pips { display: flex; gap: 5px; margin-right: auto; }
 .tour-pips i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .tour-pips i.on { background: var(--accent); }
