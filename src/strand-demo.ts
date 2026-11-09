@@ -13,7 +13,7 @@ import { strandNormalMap } from './render/yarn3d';
  * yarn about 2.3 mm thick. The work lies flat in the x/y plane, its right side facing +z.
  */
 
-const W = 6.8, H = 5.8, YARN_R = 1.35;
+const W = 6.8, H = 5.8, YARN_R = 1.55;
 const RING_R = 2.0; // the magic ring once the tail has pulled it closed
 const R1 = RING_R + H; // tops of round 1
 const R2 = R1 + H; // tops of round 2
