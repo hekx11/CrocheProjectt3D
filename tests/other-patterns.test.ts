@@ -91,6 +91,12 @@ describe('sewing', () => {
     const p = parsePattern('Body\nRnd 1: 6 sc in MR (6)\nRnd 2: inc x6 (12)\nRnds 3-6: sc around (12)\n\nNori\nRow 1: Ch 8\nRows 2-6: 7 sc, ch 1, turn\nFasten off, leaving a long tail.\nSew the rectangle onto the lower front of the body.\n\nStem\nRnd 1: 6 sc in MR (6)\nRnds 2-4: sc around (6)\nSew the stem to the underside of the body.');
     expect(p.seams.map((s) => [s.piece, s.host, s.hint])).toEqual([['p2', 'p1', 'front'], ['p3', 'p1', 'bottom']]);
   });
+  it('embroiders eyes "as shown on the chart" just above a nose sewn on at given rounds, on the head', () => {
+    const head = 'Head\nRnd 1: 6 sc in MR (6)\nRnd 2: inc x6 (12)\nRnds 3-20: sc around (12)\n\n';
+    const p = parsePattern(head + 'Nose\nRound 1 = 6 sc in magic ring (6)\nRound 2 = 6 inc (12)\nRound 3 = [1 inc, 1 sc] x 6 (18)\nStuff lightly and sew between rounds 12 and 16 of the head.\nWith black embroidery cotton, embroider the eyes as shown on the chart below.');
+    expect(p.pieces[0].markers.map((m) => [m.kind, m.rowA])).toEqual([['embroidery', 11]]);
+    expect(p.pieces[1].markers).toEqual([]);
+  });
 });
 
 describe('solid granny square (corner groups, "dc in each dc", the last corner at the start)', () => {

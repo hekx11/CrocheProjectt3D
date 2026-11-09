@@ -768,6 +768,20 @@ export function parsePattern(text: string): Pattern {
         // cheeks with no row given: level with the eyes, a little further out
         const cheeks = /cheek|blush/.test(s);
         if (row === undefined && cheeks && eyes) row = Math.min(eyes.rowA, eyes.rowB ?? eyes.rowA);
+        // embroidered eyes with no row given ("as shown on the chart"), on a face with a nose sewn
+        // on at given rounds: just above the nose, a little wider apart than the nose is wide
+        if (row === undefined && !eyes && /\beyes?\b/.test(s) && /\bembroider/.test(s)) {
+          const nose = seams.find((q) => q.rowA !== undefined && /\b(?:nose|snout|muzzle)\b/i.test(pieces.find((x) => x.id === q.piece)?.name ?? ''));
+          const host = nose && pieces.find((x) => x.id === nose.host);
+          const np = nose && pieces.find((x) => x.id === nose.piece);
+          if (nose && host && np?.rows.length) {
+            const top = Math.min(nose.rowA!, nose.rowB ?? nose.rowA!);
+            const wide = np.rows[np.rows.length - 1].computedCount;
+            host.markers.push({ kind: 'embroidery', rowA: Math.max(1, top - 1), spacingSts: Math.max(4, Math.round(wide * 0.6)), text: snt.text.trim(), line: li, src });
+            diagnostics.push({ severity: 'info', code: 'assumption', line: li, src, message: `No round given for the eyes: embroidered on ${host.name} just above the ${np.name.toLowerCase()}, round ${Math.max(1, top - 1)}.` });
+            continue;
+          }
+        }
         if (row !== undefined) p.markers.push({ kind: 'embroidery', rowA: row, spacingSts: cheeks && eyes ? (eyes.spacingSts ?? 6) + 6 : eyes?.spacingSts, text: snt.text.trim(), line: li, src });
         continue;
       }
