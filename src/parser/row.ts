@@ -226,8 +226,9 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
       let inner = parseSeq(t === '(' ? ')' : ']');
       depth--;
       // "(sc, ch 2, sc) in next st": the whole group goes into one stitch
-      if (peek() === 'in' && /^(next|same|first|last|st|ch|sp)$/.test(peek(1) ?? '') && !isNum(peek(2))) {
-        pos++;
+      const the = peek() === 'in' && peek(1) === 'the' ? 1 : 0; // "(dc, ch 2, dc) in the next st"
+      if (peek() === 'in' && /^(next|same|first|last|st|ch|sp)$/.test(peek(1 + the) ?? '') && !isNum(peek(2 + the))) {
+        pos += 1 + the;
         const w = next()!;
         const space = w === 'sp' || peek() === 'sp';
         if (w !== 'st' && w !== 'ch' && w !== 'sp' && (peek() === 'st' || peek() === 'ch' || peek() === 'sp')) pos++;
@@ -275,7 +276,7 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
     }
     let type: StitchType | 'inc' | 'dec' | null = null;
     if (peek() && STITCHES.has(peek()!)) type = next() as any;
-    else if (peek() === 'in' && lastType) type = lastType; // "... and in each ch across"
+    else if (peek() === 'in' && lastType && lastType !== 'ch') type = lastType; // "... and in each ch across"
     else { pos = start; return null; }
     // "ch 3" — number after chain
     if (type === 'ch' && !hasN && isNum(peek())) { n = +next()!; hasN = true; }
@@ -355,7 +356,7 @@ export function parseRowText(raw: string, opts: { terms: 'US' | 'UK'; leadingChI
         pos += 2;
         if (peek() === 'hook') pos++;
         target = 'from-hook';
-      } else if (w === 'st' || w === 'ch' || w === 'first' || w === 'last') {
+      } else if (w === 'st' || w === 'ch' || w === 'first' || w === 'last' || (w === 'this' && (peek(1) === 'st' || peek(1) === 'ch'))) {
         pos++;
         if (peek() === 'st' || peek() === 'ch') pos++;
         target = 'next';
@@ -653,6 +654,19 @@ export function chainCountsAs(ops: Op[], n: number, as: StitchType): Op[] | null
   const src = out[i].src;
   out.splice(i, n, { kind: 'stitch', type: as, target: { kind: 'same' }, loop: 'both', tension: 1, consumes: 1, src });
   return out;
+}
+
+/**
+ * Every stitch the row makes, chains and the stitches worked back along them included, as some
+ * patterns count a round with a point in it ("ch 2, sc in second ch from hook" = 2). The chains
+ * skipped next to the hook are the turn, not stitches, as on a foundation chain.
+ */
+export function countMade(r: ExecResult): number {
+  let skipped = 0;
+  r.stitches.forEach((s, i) => {
+    if (s.onChain !== undefined && r.stitches[i - 1]?.isChain) skipped += i - 1 - s.onChain;
+  });
+  return r.stitches.length - skipped;
 }
 
 export function countOf(r: ExecResult, unit: string): number {

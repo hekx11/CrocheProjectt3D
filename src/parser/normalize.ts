@@ -64,6 +64,10 @@ export function normalize(input: string, terms: 'US' | 'UK' = 'US'): string {
     .replace(/\bx\s*(\d+)/g, ' x $1 ')
     .replace(/\s+/g, ' ')
     .trim();
+  // "hdc + dc in next st", "dc + ch 2 + dc in next st": stitches joined by "+" all go into the one
+  // stitch named after them, like "(hdc, dc) in next st"
+  const item = '(?:\\d+ )?(?:sc|hdc|dc|tr|dtr|slst|ch)(?: \\d+)?';
+  s = s.replace(new RegExp(`\\b(${item}(?: ?\\+ ?${item})+)(?= (?:in|on) )`, 'g'), (m) => `( ${m.replace(/ ?\+ ?/g, ' , ')} )`);
   return s;
 }
 
@@ -108,6 +112,11 @@ export function rewritePhrases(input: string): string {
     .replace(/\bleave (?:the )?(?:remaining|rest of the|other) (?:st|sts|stitch(?:es)?) unworked\b/g, ' ')
     // a picot: "ch 3, start in third ch from hook, slst in this st" is a chain bump, nothing worked below
     .replace(/\bch\s*(\d+)\s*,\s*(?:start(?:ing)?\s+)?(?:in|into)\s+(?:the\s+)?(?:second|third|fourth|2nd|3rd|4th|\d)\s+ch\s+from\s+(?:the\s+)?hook\s*,?\s*(?:sl\s*st|slst|slip stitch)\s+(?:in|into)\s+(?:this|the same|same)\s+(?:st|stitch|ch)/g, ' ch $1 ')
+    // a point: "ch 2, start in second ch from hook, sc in this st" is a stitch worked back into the chain just made
+    .replace(/(\bch\s*\d+\s*,\s*)start(?:ing)?\s+(?:in|into)\s+(?:the\s+)?(second|third|fourth|2nd|3rd|4th|\d)\s+ch\s+from\s+(?:the\s+)?hook\s*,\s*((?:\d+\s+)?(?:sc|hdc|dc|tr|single crochet|half double crochet|double crochet|treble(?: crochet)?))\s+(?:in|into)\s+(?:this|the same|same|that)\s+(?:st|stitch|ch|chain)\b/g, (_m, ch, w, st) => {
+      const n = ({ second: 2, third: 3, fourth: 4, '2nd': 2, '3rd': 3, '4th': 4 } as Record<string, number>)[w] ?? +w;
+      return `${ch}${st} in ${n} ch from hook`;
+    })
     // "start in second ch from hook, sc in next 30 ch": the first stitch skips the ch(s) next to the hook
     .replace(/^\s*start(?:ing)?\s+(?:in|into)\s+(?:the\s+)?(second|third|fourth|2nd|3rd|4th|2|3|4)\s+(?:ch|chain)\s+from\s+(?:the\s+)?hook\s*,?/g, (_m, w) => {
       const n = ({ second: 2, third: 3, fourth: 4, '2nd': 2, '3rd': 3, '4th': 4 } as Record<string, number>)[w] ?? +w;
