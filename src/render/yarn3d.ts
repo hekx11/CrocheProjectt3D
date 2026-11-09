@@ -512,6 +512,10 @@ export class Yarn3D {
           if (d2 > 1e-9) { bend += Math.max(0, (-2 * a.dot(Z)) / d2); nb++; }
         }
         if (nb) bend /= nb;
+        // two stitches almost on top of each other (a chain loop the solver has bunched up) would
+        // read as an impossibly tight curve and fling the stitch's sides far off the piece: the
+        // fabric can't curve tighter than about a stitch across
+        bend = Math.min(bend, 1 / w);
         const map = (x: number, y: number, z: number, xs: number) => {
           q.copy(O).addScaledVector(X, xs * w).addScaledVector(Z, z * w - 0.5 * bend * (xs * w) ** 2);
           if (y >= 0) q.addScaledVector(U, y - 0.5); else q.addScaledVector(U, -0.5).addScaledVector(Ud, y * dip);
