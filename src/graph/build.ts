@@ -23,7 +23,8 @@ export interface GNode {
 
 export type EdgeKind = 'yarn' | 'into' | 'ring' | 'join' | 'seam';
 /** stick: a patch stitch held this far out along the host's surface normal (appliqué), not a length; negative: only kept at least that far out. */
-export interface GEdge { a: number; b: number; kind: EdgeKind; rest: number; stick?: number }
+/** beside: a stick's stitch is held this far along the surface from its host stitch (it lies between host stitches, not on one). */
+export interface GEdge { a: number; b: number; kind: EdgeKind; rest: number; stick?: number; beside?: [number, number, number] }
 
 export interface GRow {
   piece: string;
@@ -175,6 +176,8 @@ export function buildGraph(p: Pattern, sz: Sizing): StitchGraph {
           }
           continue;
         }
+        // the yarn joined part-way along the row below: the stitches before that are left unworked
+        if (r.startAt && r.startAt > 1 && !ringMode && r.startAt <= prevWork.length) prevWork = prevWork.slice(r.startAt - 1);
         const ex = execute(r.ops, ringMode ? 0 : prevWork.length, ringMode, prevWork.map((id) => nodes[id]?.type as StitchType));
         const color = yarnColor.get(r.yarnId) ?? firstColor;
         const yarn = yarnColor.has(r.yarnId) ? r.yarnId : firstYarn;

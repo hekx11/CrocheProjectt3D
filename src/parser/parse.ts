@@ -525,6 +525,14 @@ export function parsePattern(text: string): Pattern {
           expectedCount: parsed.expectedCount, computedCount: ex.stitches.length ? ex.stitches.length : stitchCount,
           yarnId, join: parsed.join, turn: parsed.turn, line: li, src: lineSrc, status: 'ok',
         };
+        // "Pull up a loop of light gray yarn in the 11th stitch" since the row before: this row
+        // starts there, not at the first stitch (a tiara's point in the middle of its band)
+        if (label === a && prev) {
+          for (let q = prev.line + 1; q < li; q++) {
+            const at = /\b(?:pull up a loop|join|attach|insert (?:the |your )?hook)\b[^.]*?\b(?:in|into|to|at) the (\d+)(?:st|nd|rd|th) (?:st|stitch)\b/i.exec(rawLines[q] ?? '');
+            if (at && +at[1] > 1 && +at[1] <= prev.computedCount) row.startAt = +at[1];
+          }
+        }
         row.stitchTypes = ex.stitches.map((q) => q.type);
         // "computedCount" in the graph sense = all produced stitches the next row can work into
         row.computedCount = ex.stitches.length;
@@ -830,6 +838,10 @@ export function parsePattern(text: string): Pattern {
   // Post-process pieces.
   for (const p of pieces) {
     if (p.start.kind === 'chain' && !p.start.ring && p.construction === 'spiral' && !p.oval) p.construction = 'rows';
+    // "Flatten the arm and sew it closed" on a long narrow tube (6 stitches round, 9 rounds) presses
+    // its opening shut for sewing on; the arm stays a little tube. Read as a pouch pressed flat all
+    // the way down (an ear), it became a wide flat flap plastered against the body.
+    if (p.flatten && p.construction !== 'rows' && p.rows.length >= 6 && Math.max(...p.rows.map((r) => r.computedCount)) <= 8) { p.flatten = false; p.flatEdge = true; }
     if (p.finish === 'open' && p.construction !== 'rows' && smallEnd(p)) p.finish = 'closed';
     if (p.stuffing === 'unspecified' && globalStuff && p.construction !== 'rows' && !p.flatten && p.rows.length >= 2) p.stuffing = globalStuff;
     if (p.stuffing === 'unspecified') {

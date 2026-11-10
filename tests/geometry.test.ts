@@ -435,3 +435,79 @@ describe('warm start after adding rows', () => {
     }
   });
 });
+
+const BALL = `Ball
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (sc, inc) repeat 6 times [18]
+Rnd 4: (2 sc, inc) repeat 6 times [24]
+Rnd 5-8: sc in all 24 st [24]
+Rnd 9: (2 sc, dec) repeat 6 times [18]
+Rnd 10: (sc, dec) repeat 6 times [12]
+Stuff firmly.
+Rnd 11: dec 6 times [6]
+Fasten off.
+`;
+
+describe('a small stuffed ball', () => {
+  it('comes to rest instead of drifting and turning for ever', () => {
+    const model = buildModel(parsePattern(BALL), { tension: 'normal' });
+    const s = new Solver(model.solverInput);
+    let frames = 0;
+    for (; frames < 400; frames++) if (s.step(10) < 0.002) break;
+    expect(frames).toBeLessThan(400);
+  });
+  it('is stuffed out to the size of its stitches: the widest round is about 24 stitches round', () => {
+    const { model, pos } = solve(BALL);
+    const { w } = model.sizing;
+    const row = model.graph.instances[0].rows.find((r) => r.row === 6)!;
+    let len = 0;
+    for (let i = 0; i < row.nodes.length; i++) {
+      const a = row.nodes[i] * 3, b = row.nodes[(i + 1) % row.nodes.length] * 3;
+      len += Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2]);
+    }
+    expect(len).toBeGreaterThan(24 * w * 0.9);
+    expect(len).toBeLessThan(24 * w * 1.1);
+  });
+});
+
+describe('a round started part-way along the one below', () => {
+  it('"pull up a loop in the 11th stitch" works the round from stitch 11 on', () => {
+    const pattern = parsePattern(`Band
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (sc, inc) repeat 6 times [18]
+Fasten off. Pull up a loop of yarn in the 11th stitch.
+Rnd 4: sc in next 5 st [5]
+`);
+    const piece = pattern.pieces[0];
+    expect(piece.rows[3].startAt).toBe(11);
+    const g = buildModel(pattern, { tension: 'normal' }).graph;
+    const rows = g.instances[0].rows;
+    const r1 = rows.find((r) => r.row === 3)!, r2 = rows.find((r) => r.row === 4)!;
+    const first = r2.nodes.find((id) => g.nodes[id].type === 'sc')!;
+    const into = g.edges.find((e) => e.kind === 'into' && (e.a === first || e.b === first))!;
+    const below = into.a === first ? into.b : into.a;
+    expect(r1.nodes.indexOf(below)).toBe(10);
+  });
+});
+
+describe('a thin arm with its top flattened', () => {
+  it('stays a tube: only the opening is pressed shut, the arm is not ironed flat', () => {
+    const p = parsePattern(`Body
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2: inc in all 6 st [12]
+Rnd 3: (sc, inc) repeat 6 times [18]
+Rnd 4-12: sc in all 18 st [18]
+Stuff firmly.
+
+Arm (make 2)
+Rnd 1: 6 sc in a magic ring [6]
+Rnd 2-8: sc in all 6 st [6]
+Do not stuff. Flatten the arm and sew to the side of the body.
+`);
+    const arm = p.pieces.find((x) => /arm/i.test(x.name))!;
+    expect(arm.flatten).toBe(false);
+    expect(arm.flatEdge).toBe(true);
+  });
+});

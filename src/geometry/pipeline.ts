@@ -103,6 +103,24 @@ function roundsOf(graph: StitchGraph, pi: StitchGraph['instances'][number]): { r
   };
 }
 
+/**
+ * The rounds a stuffed piece is measured round to tell when it is full: its widest rounds (the narrower
+ * ones lie flat and bunched at the ends, or are held out by wider rounds next to them, however full
+ * the piece is), with the length of yarn in each.
+ */
+function girthsOf(graph: StitchGraph, pi: StitchGraph['instances'][number]): { nodes: number[]; rest: number }[] | undefined {
+  if (pi.stuffed === 0) return undefined;
+  // (an open piece, a snout or a head left open at the neck, is held by the edge it is sewn on by,
+  // which keeps its length whatever the stuffing does, and the rounds next to that edge with it:
+  // those say nothing about how full it is)
+  const all = pi.rows.filter((r) => r.row > 0);
+  const upTo = pi.piece.finish === 'closed' ? all.length : all.length - 3;
+  const rows = all.filter((r, i) => i < upTo && r.closed && r.nodes.length >= 6);
+  const most = Math.max(0, ...rows.map((r) => r.nodes.length));
+  const out = rows.filter((r) => r.nodes.length >= most * 0.95).map((r) => ({ nodes: r.nodes, rest: r.nodes.slice(1).reduce((a, id) => a + graph.nodes[id].w, 0) }));
+  return out.length >= (pi.piece.finish === 'closed' ? 1 : 2) ? out : undefined;
+}
+
 /** Parse result → sized stitch graph → seeded positions → solver input. */
 export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<string, [number, number, number]>): Model {
   const sizing = computeSizing(pattern, user);
@@ -178,6 +196,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
   const all = [...graph.edges, ...cinch, ...seams, ...stalks.flatMap((q) => q.brace)];
   const stick = new Float32Array(sticks.length * 3);
   sticks.forEach((e, i) => stick.set([e.a, e.b, e.stick!], i * 3));
+  const beside = new Float32Array(sticks.length * 3);
+  sticks.forEach((e, i) => { if (e.beside) beside.set(e.beside, i * 3); });
   const stuffedNode = new Uint8Array(graph.nodes.length);
   for (const pi of graph.instances) if (pi.stuffed > 0) for (const id of pi.nodeIds) stuffedNode[id] = 1;
   // the open edge of a stuffed piece is sewn to something (a head, a lid): it keeps its length
@@ -222,6 +242,17 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     }
     return undefined;
   };
+  // each stuffed piece's stitches into the round below (how tall its rounds stand)
+  const rise = new Map<(typeof graph.instances)[number], number[]>();
+  {
+    const own = new Map<number, (typeof graph.instances)[number]>();
+    for (const pi of graph.instances) if (pi.stuffed > 0) for (const id of pi.nodeIds) own.set(id, pi);
+    all.forEach((e, i) => {
+      const pi = own.get(e.a);
+      if (e.kind !== 'into' || !pi || own.get(e.b) !== pi || !(give[i] < 1) || !(e.rest > 0)) return;
+      (rise.get(pi) ?? rise.set(pi, []).get(pi)!).push(i);
+    });
+  }
   const instances = graph.instances.map((pi) => {
     let h = 0;
     for (const id of pi.nodeIds) h += graph.nodes[id].h;
@@ -244,6 +275,8 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
       // a flat circle worked in rounds (a coaster): every closed round, for rounding out
       brim: brimOf(pi),
       ...roundsOf(graph, pi),
+      girths: girthsOf(graph, pi),
+      rise: rise.get(pi),
       stalk: stalks[graph.instances.indexOf(pi)].nodes.length ? stalks[graph.instances.indexOf(pi)].nodes : undefined,
       // (and a strip wrapped round something, a veil or a collar, hangs from where it is tied)
       // (lightly: it hangs off a small part, a bun, that would topple under a skirt's weight)
@@ -265,6 +298,7 @@ export function buildModel(pattern: Pattern, user: UserMaterials, warm?: Map<str
     fixed,
     give,
     stick,
+    beside,
   };
   return { pattern, sizing, graph, tris, triPiece, holes, markers: s.markers, solverInput };
 }
