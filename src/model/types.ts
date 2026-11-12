@@ -76,6 +76,8 @@ export interface RowDef {
   status: LineStatus;
   /** The type of each stitch this row makes, in work order (chains are its chain spaces). */
   stitchTypes?: StitchType[];
+  /** The yarn is joined for this row at the nth stitch of the row below ("pull up a loop in the 11th stitch"), 1-based. */
+  startAt?: number;
   /** Decoration the 3D view leaves out (long chain strands for hair curls). */
   skipGeometry?: boolean;
   /** Long strands worked off this row (hair strands, curls): one entry per strand, in order,

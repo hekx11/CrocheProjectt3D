@@ -9,7 +9,7 @@ export interface SolverInput {
   edges: Float32Array; // [a, b, rest, stiffness, slack] * E — slack: allowed compression ratio (stuffed fabric bunches, it doesn't push back)
   tris: Uint32Array;
   triPiece: Uint16Array;
-  instances: { nodeIds: number[]; stuffed: number; closed?: boolean; drape?: number; rings?: number[][]; ringR?: number[]; ringCorners?: (number[] | undefined)[]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; stalk?: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
+  instances: { nodeIds: number[]; stuffed: number; girths?: { nodes: number[]; rest: number }[]; rise?: number[]; closed?: boolean; drape?: number; rings?: number[][]; ringR?: number[]; ringCorners?: (number[] | undefined)[]; brim?: { top: number[]; fold: number[]; rings: number[][]; radius: number[] }; stalk?: number[]; shape?: { triangle?: boolean; flatBottom?: boolean; oval?: boolean }; flat: boolean; side?: number[]; planeNormal: [number, number, number]; hAvg: number; crease: number[] }[];
   smoothing: number; // 0..1 (stiffer yarn → smoother)
   /**
    * Per edge, how hard the edge resists being stretched past its rest length (1 = rigid, the default).
@@ -19,6 +19,8 @@ export interface SolverInput {
   give?: Float32Array;
   /** [patchNode, hostNode, offset]*: the patch node is held offset out along the host node's normal */
   stick?: Float32Array;
+  /** per stick, [x, y, z]: where along the surface from its host stitch the stitch is held (a patch's stitches lie between the host's) */
+  beside?: Float32Array;
   fixed?: Uint8Array; // 1 = do not move (virtual / pinned)
 }
 
@@ -59,7 +61,9 @@ export class Solver {
         const j = this.nbr[q];
         if (own[j] !== own[b]) continue;
         const d = d2(j);
-        if (d < bd) { bd = d; best = j; }
+        // (only when clearly nearer: between two stitches about as near, it would hop from one
+        // to the other and back, step after step, and the piece on top would never lie still)
+        if (d < bd * 0.8) { bd = d; best = j; }
       }
       if (best === b) break;
       b = best;
@@ -104,7 +108,7 @@ export class Solver {
       for (const pi of this.inst) if (pi.side) for (const id of pi.nodeIds) this.pouchMask[id] = input.fixed?.[id] ?? 0;
     }
     // joined pieces (edges and sticks): draping one part must not make the whole toy sink
-    if (this.inst.some((pi) => pi.drape)) {
+    {
       const par = new Int32Array(N).map((_, i) => i);
       const find = (i: number): number => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
       const join = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) par[rb] = ra; };
@@ -115,6 +119,8 @@ export class Solver {
       for (let i = 0; i < N; i++) this.comp[i] = find(i);
       this.compSize = new Float32Array(N);
       for (let i = 0; i < N; i++) this.compSize[this.comp[i]]++;
+      this.afloat = new Uint8Array(N).fill(1);
+      for (const pi of this.inst) if (pi.shape?.flatBottom || pi.shape?.triangle) for (const id of pi.nodeIds) this.afloat[this.comp[id]] = 0;
     }
     if (input.stick) {
       this.stickB = new Uint32Array(input.stick.length / 3);
@@ -301,6 +307,105 @@ export class Solver {
     }
   }
 
+  /**
+   * Nothing pushes a toy from outside, so a step may change its shape but not carry it off or turn
+   * it. Stuffing pressure, smoothing and the one-sided holds of sewn-on parts don't balance out
+   * exactly, and the leftover moved every model a little each step, without end: a bee slid 2 cm
+   * and its wings wound round while it was "shaping", a granny square kept spinning, and no shape
+   * ever came to rest. Each group of joined pieces gives back the step's net shift and turn.
+   */
+  private holdStill() {
+    const comp = this.comp, size = this.compSize;
+    if (!comp || !size) return;
+    const p = this.pos, q = this.prev, N = comp.length;
+    const acc = (this.rigid ??= new Float64Array(N * 21));
+    acc.fill(0);
+    // per group: centre before (0-2), mean move (3-5)
+    for (let i = 0; i < N; i++) {
+      const o = comp[i] * 21;
+      for (let k = 0; k < 3; k++) { acc[o + k] += q[i * 3 + k]; acc[o + 3 + k] += p[i * 3 + k] - q[i * 3 + k]; }
+    }
+    for (let c = 0; c < N; c++) if (size[c]) for (let k = 0; k < 6; k++) acc[c * 21 + k] /= size[c];
+    // angular part: L = sum r x d (6-8), inertia (9-14: xx yy zz xy xz yz)
+    for (let i = 0; i < N; i++) {
+      const o = comp[i] * 21;
+      const rx = q[i * 3] - acc[o], ry = q[i * 3 + 1] - acc[o + 1], rz = q[i * 3 + 2] - acc[o + 2];
+      const dx = p[i * 3] - q[i * 3] - acc[o + 3], dy = p[i * 3 + 1] - q[i * 3 + 1] - acc[o + 4], dz = p[i * 3 + 2] - q[i * 3 + 2] - acc[o + 5];
+      acc[o + 6] += ry * dz - rz * dy; acc[o + 7] += rz * dx - rx * dz; acc[o + 8] += rx * dy - ry * dx;
+      acc[o + 9] += ry * ry + rz * rz; acc[o + 10] += rx * rx + rz * rz; acc[o + 11] += rx * rx + ry * ry;
+      acc[o + 12] -= rx * ry; acc[o + 13] -= rx * rz; acc[o + 14] -= ry * rz;
+    }
+    // turn rate w = I^-1 L (15-17)
+    for (let c = 0; c < N; c++) {
+      if (size[c] < 3) continue;
+      const o = c * 21;
+      const a = acc[o + 9], b = acc[o + 12], cc = acc[o + 13], d = acc[o + 10], e = acc[o + 14], f = acc[o + 11];
+      const A = d * f - e * e, B = cc * e - b * f, C = b * e - cc * d;
+      const det = a * A + b * B + cc * C;
+      if (!(Math.abs(det) > 1e-9 * Math.abs(a * d * f) && Math.abs(det) > 1e-12)) continue;
+      const lx = acc[o + 6], ly = acc[o + 7], lz = acc[o + 8];
+      acc[o + 15] = (A * lx + B * ly + C * lz) / det;
+      acc[o + 16] = (B * lx + (a * f - cc * cc) * ly + (b * cc - a * e) * lz) / det;
+      acc[o + 17] = (C * lx + (b * cc - a * e) * ly + (a * d - b * b) * lz) / det;
+    }
+    const still = this.afloat;
+    for (let i = 0; i < N; i++) {
+      const o = comp[i] * 21;
+      const rx = q[i * 3] - acc[o], ry = q[i * 3 + 1] - acc[o + 1], rz = q[i * 3 + 2] - acc[o + 2];
+      const wx = acc[o + 15], wy = acc[o + 16], wz = acc[o + 17];
+      p[i * 3] -= acc[o + 3] + wy * rz - wz * ry;
+      // (a piece being stood on its base is lifted onto it: that part of the move is meant)
+      p[i * 3 + 1] -= (still[comp[i]] ? acc[o + 4] : 0) + wz * rx - wx * rz;
+      p[i * 3 + 2] -= acc[o + 5] + wx * ry - wy * rx;
+    }
+  }
+  private rigid?: Float64Array;
+
+  /**
+   * How hard the stuffing pushes this piece out, as a multiple of the base pressure. Stuffing fills
+   * a piece until its fabric is taut, whatever its size. One fixed pressure did not: on a small
+   * piece it lost to the smoothing (an 18-stitch head stayed a quarter too small, squashed and
+   * lumpy, its yarn bunched up to the limit). The push grows while every wide round of the piece
+   * is still shorter than its stitches are wide, and settles once the fullest round is taut and
+   * the rounds stand at their height. It never drops under the base pressure: with less than
+   * that, narrow tubes (legs) lose their shape.
+   */
+  private fill(pi: SolverInput['instances'][number]): number {
+    return this.gain.get(pi) ?? 1;
+  }
+  /** (measured on the shape as it is shown, after the step's push, so that is what ends up taut) */
+  private refill(pi: SolverInput['instances'][number]) {
+    if (!pi.girths) return;
+    const p = this.pos;
+    let full = 0;
+    for (const r of pi.girths) {
+      let L = 0;
+      for (let j = 1; j < r.nodes.length; j++) {
+        const a = r.nodes[j - 1] * 3, b = r.nodes[j] * 3;
+        L += Math.hypot(p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]);
+      }
+      full = Math.max(full, L / r.rest);
+    }
+    // and up it: a narrow tube (a leg) is taut round long before it stands at its full length,
+    // and with too little in it, it folds up
+    if (pi.rise && pi.rise.length >= 6) {
+      const { edges } = this.input;
+      let sum = 0;
+      for (const e of pi.rise) {
+        const a = edges[e * 5] * 3, b = edges[e * 5 + 1] * 3;
+        sum += Math.hypot(p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]) / edges[e * 5 + 2];
+      }
+      full = Math.min(full, sum / pi.rise.length);
+    }
+    const taut = pi.stuffed >= 1 ? 1 : 0.95; // light stuffing leaves the fabric a little slack
+    const err = taut - full;
+    const g = Math.min(12, Math.max(1, (this.gain.get(pi) ?? 1) * Math.exp(Math.max(-0.25, Math.min(0.25, 3 * err)))));
+    this.gain.set(pi, g);
+  }
+  private gain = new Map<object, number>();
+  /** per group of joined pieces: 1 unless one of its pieces is pushed up onto a base plane */
+  private afloat!: Uint8Array;
+
   /** Run `iters` iterations; returns the largest node movement (mm). */
   step(iters = 8): number {
     const { edges, tris, triPiece, fixed, give } = this.input;
@@ -319,9 +424,12 @@ export class Solver {
         let kk = k;
         if (L < rest) { if (L >= rest * slack) continue; target = rest * slack; }
         else if (give && give[e] < 1) {
-          // loose yarn: gives softly for the first few percent, then the yarn is taut
-          if (L <= rest * (1 + STRETCH_CAP)) kk = k * give[e];
-          else target = rest * (1 + STRETCH_CAP);
+          // loose yarn: gives softly for the first few percent, then the yarn is taut. (One pull
+          // that grows steadily with the stretch: a soft pull that let go the moment the yarn went
+          // taut left stitches flipping between the two, step after step, and never at rest.)
+          const cap = rest * (1 + STRETCH_CAP);
+          if (L <= cap) kk = k * give[e];
+          else target = L - (give[e] * (cap - rest) + (L - cap));
         }
         const diff = (L - target) / L;
         energy += Math.abs(L - rest);
@@ -348,7 +456,7 @@ export class Solver {
     const drop = this.comp ? new Float32Array(this.comp.length) : undefined;
     for (const pi of this.inst) {
       if (pi.stuffed > 0) {
-        const f = pi.stuffed * pi.hAvg * 0.1;
+        const f = pi.stuffed * pi.hAvg * 0.1 * this.fill(pi);
         for (const id of pi.nodeIds) {
           if ((fixed && fixed[id]) || this.stalkMask?.[id]) continue;
           const i = id * 3;
@@ -396,8 +504,25 @@ export class Solver {
         // a negative offset only keeps the stitch clear of the surface (a veil hanging over hair);
         // the surface stitch it keeps clear of follows it, to whichever neighbour is now nearest
         if (st[k + 2] < 0) this.nearestOnSurface(k);
-        const a = st[k] * 3, b = this.stickB![k / 3] * 3, off = Math.abs(st[k + 2]);
-        if (st[k + 2] >= 0) for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
+        const be = this.input.beside;
+        const patch = st[k + 2] >= 0 && !!be && (be[k] !== 0 || be[k + 1] !== 0 || be[k + 2] !== 0);
+        const a = st[k] * 3, b = (patch ? st[k + 1] : this.stickB![k / 3]) * 3, off = Math.abs(st[k + 2]);
+        // (a patch stitch is held beside its host stitch, where its own rows put it: pinned onto
+        // the host stitches, a patch took on their spacing, two rows on one round of the host and
+        // the next a round away, and came out lumpy with rows stretched to twice their height)
+        if (patch) {
+          // firmly off the surface, only loosely along it: the host's surface changes shape as it
+          // fills out, and a patch held hard to where it was first laid is stretched along with it
+          // (off the surface under it now, whichever host stitch that is: over the one it started
+          // by, a patch that has settled a little way along stands off a curved surface as a flap)
+          this.nearestOnSurface(k);
+          const n = this.nrm, u = this.stickB![k / 3] * 3;
+          const dn = off - ((p[a] - p[u]) * n[u] + (p[a + 1] - p[u + 1]) * n[u + 1] + (p[a + 2] - p[u + 2]) * n[u + 2]);
+          const d = [0, 1, 2].map((c) => p[b + c] + n[b + c] * off + be[k + c] - p[a + c]);
+          const dt = d[0] * n[u] + d[1] * n[u + 1] + d[2] * n[u + 2];
+          for (let c = 0; c < 3; c++) p[a + c] += n[u + c] * dn * 0.5 + (d[c] - n[u + c] * dt) * 0.08;
+          continue;
+        } else if (st[k + 2] >= 0) for (let c = 0; c < 3; c++) p[a + c] += (p[b + c] + this.nrm[b + c] * off - p[a + c]) * 0.5;
         // never inside the clearance: a cap that is tighter than the host would otherwise sink
         // into it and the host's colour shows through in patches
         const d = (p[a] - p[b]) * this.nrm[b] + (p[a + 1] - p[b + 1]) * this.nrm[b + 1] + (p[a + 2] - p[b + 2]) * this.nrm[b + 2];
@@ -406,11 +531,11 @@ export class Solver {
         if (d < off && lat < 4 * off * off) for (let c = 0; c < 3; c++) p[a + c] += this.nrm[b + c] * (off - d);
       }
     }
+    for (let i = 0; i < p.length; i++) if (!Number.isFinite(p[i])) p[i] = this.prev[i];
+    this.holdStill();
+    for (const pi of this.inst) if (pi.stuffed > 0) this.refill(pi);
     let maxMove = 0;
-    for (let i = 0; i < p.length; i++) {
-      if (!Number.isFinite(p[i])) p[i] = this.prev[i];
-      maxMove = Math.max(maxMove, Math.abs(p[i] - this.prev[i]));
-    }
+    for (let i = 0; i < p.length; i++) maxMove = Math.max(maxMove, Math.abs(p[i] - this.prev[i]));
     this.energy = energy;
     return maxMove;
   }

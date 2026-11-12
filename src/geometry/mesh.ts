@@ -59,8 +59,11 @@ export function triangulate(g: StitchGraph): { tris: Uint32Array; triPiece: Uint
         for (let j = 0; j < m; j++) {
           const j1 = (j + 1) % m;
           const a = Math.max(0, A[j]), b = Math.max(0, A[j1]);
-          add(C[j], C[j1], P[Math.min(b, n - 1)]);
-          if (a !== b) add(C[j], P[Math.min(b, n - 1)], P[Math.min(a, n - 1)]);
+          // (wound the same way as every other round: wound backwards, these triangles turned the
+          // normals along the chain inward, so stuffing pushed the chain into the piece as a groove
+          // and shook the stitches round it, whose normals nearly cancelled, from step to step)
+          add(C[j], P[Math.min(b, n - 1)], C[j1]);
+          if (a !== b) add(C[j], P[Math.min(a, n - 1)], P[Math.min(b, n - 1)]);
         }
         continue;
       }

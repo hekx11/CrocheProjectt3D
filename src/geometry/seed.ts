@@ -623,7 +623,12 @@ function attach(
   // a stuffed arm with its top pressed flat and sewn on at the side is sewn on along a line, not
   // round a circle: it can't stand straight out and droops down and out from the shoulder
   const droop = !hang && seam.hint === 'side' && !!pi.piece.flatEdge && pi.stuffed > 0;
-  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : droop ? norm(add(normal, [0, -0.6, 0])) : normal;
+  // a long thin tube with no stuffing in it (a tail, a string) has nothing to hold it out: it
+  // hangs down from where it is sewn on, a little clear of the piece, instead of sticking straight out
+  const counts = pi.rows.filter((r) => r.row > 0).map((r) => r.nodes.length);
+  const limp = !hang && !droop && pi.stuffed === 0 && !pi.piece.flatten && pi.piece.construction !== 'rows' && seam.hint !== 'top'
+    && counts.length >= 8 && Math.max(...counts) <= 8 && normal[1] > -0.5;
+  const dir = hang ? norm(add(mul(normal, 0.35), [0, -1, 0])) : droop ? norm(add(normal, [0, -0.6, 0])) : limp ? norm(add(mul(normal, 0.55), [0, -1, 0])) : normal;
   if (hang) planes.set(pi, normal);
   const rot0 = rotator(opening, mul(dir, -1));
   // roll around the attach direction so the flat side faces the front (or out, for a hanging flap)
@@ -645,9 +650,21 @@ function attach(
   }
   // a hanging flap (an arm sewn on at the neck) rests against the host below it instead of
   // passing through it: push it out over the host's surface and keep it lying there
-  if (hang) {
+  // (so does a limp tube, an arm or a tail: it lies along the host as the tube it is, each stitch
+  // kept its own distance off the surface, free to settle along it)
+  if (hang || limp) {
     const hostAll = host.nodeIds.filter((id) => !g.nodes[id].virtual);
     const lift = (g.nodes[edge[0]].h || w) * 0.7;
+    const nearest = (pv: V) => { let b = hostAll[0], d2 = Infinity; for (const hid of hostAll) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } } return b; };
+    // a tube keeps its roundness: each round moves out as a whole until all of it is clear
+    if (limp) for (const r of pi.rows) {
+      if (r === pi.rows[edgeRow] || !r.nodes.length) continue;
+      const hb = get(pos, nearest(centroid(pos, r.nodes)));
+      const out = norm([hb[0] - hostC[0], 0, hb[2] - hostC[2]]);
+      let need = 0;
+      for (const id of r.nodes) { const pv = get(pos, id); need = Math.max(need, lift - dot(sub(pv, get(pos, nearest(pv))), out)); }
+      if (need > 0) for (const id of r.nodes) pos.set(add(get(pos, id), mul(out, need)), id * 3);
+    }
     for (const id of pi.nodeIds) {
       if (g.nodes[id].virtual) continue;
       const pv = get(pos, id);
@@ -1068,6 +1085,8 @@ function attachPatch(g: StitchGraph, pi: PieceInstance, hostIds: number[], targe
     const pv = sub(get(pos, id), mul(normal, lift));
     let b = hostIds[0], d2 = Infinity;
     for (const hid of hostIds) { const d = sub(get(pos, hid), pv); const q = dot(d, d); if (q < d2) { d2 = q; b = hid; } }
-    seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: lift });
+    // (beside it: the patch's stitches fall between the host's, each where its own row puts it)
+    const t = sub(pv, get(pos, b));
+    seamEdges.push({ a: id, b, kind: 'seam', rest: 0, stick: lift, beside: sub(t, mul(normal, dot(t, normal))) });
   }
 }
